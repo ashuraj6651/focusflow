@@ -1,0 +1,48 @@
+'use client';
+
+import { useAppStore } from '@/stores/appStore';
+import {
+  LayoutDashboard, Crosshair, Timer, CalendarDays, CheckSquare,
+  BookOpen, StickyNote, Target, BarChart3, Repeat, GraduationCap,
+  Sparkles, Settings,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const navItems: { id: ViewType; label: string; icon: React.ReactNode }[] = [
+  { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={20} strokeWidth={1.8} /> },
+  { id: 'pomodoro', label: 'Pomodoro', icon: <Timer size={20} strokeWidth={1.8} /> },
+  { id: 'planner', label: 'Planner', icon: <CalendarDays size={20} strokeWidth={1.8} /> },
+  { id: 'checklist', label: 'Tasks', icon: <CheckSquare size={20} strokeWidth={1.8} /> },
+  { id: 'analytics', label: 'Stats', icon: <BarChart3 size={20} strokeWidth={1.8} /> },
+  { id: 'settings', label: 'More', icon: <Settings size={20} strokeWidth={1.8} /> },
+];
+
+export function MobileNav() {
+  const { currentView, setCurrentView } = useAppStore();
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] bg-[#0c0c0f]/90 backdrop-blur-2xl md:hidden">
+      <div className="flex items-center justify-around px-1 py-1.5 pb-[env(safe-area-inset-bottom)]">
+        {navItems.map((item) => {
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentView(item.id)}
+              className={cn(
+                'relative flex flex-col items-center gap-1 rounded-2xl px-4 py-2 transition-all duration-200',
+                isActive ? 'text-purple-400' : 'text-white/30 active:text-white/50'
+              )}
+            >
+              {isActive && (
+                <div className="absolute -top-1.5 h-1 w-6 rounded-full bg-purple-500" />
+              )}
+              {item.icon}
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

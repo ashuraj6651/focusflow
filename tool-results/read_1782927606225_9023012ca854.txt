@@ -1,0 +1,792 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useState, useMemo, useCallback } from 'react';
+     4→     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→     5→import {
+     6→     6→  Plus,
+     7→     7→  GripVertical,
+     8→     8→  Pencil,
+     9→     9→  Trash2,
+    10→    10→  CalendarDays,
+    11→    11→  Filter,
+    12→    12→  Clock,
+    13→    13→  BookOpen,
+    14→    14→} from 'lucide-react';
+    15→    15→import {
+    16→    16→  DndContext,
+    17→    17→  closestCenter,
+    18→    18→  KeyboardSensor,
+    19→    19→  PointerSensor,
+    20→    20→  useSensor,
+    21→    21→  useSensors,
+    22→    22→  type DragEndEvent,
+    23→    23→} from '@dnd-kit/core';
+    24→    24→import {
+    25→    25→  SortableContext,
+    26→    26→  sortableKeyboardCoordinates,
+    27→    27→  useSortable,
+    28→    28→  verticalListSortingStrategy,
+    29→    29→} from '@dnd-kit/sortable';
+    30→    30→import { CSS } from '@dnd-kit/utilities';
+    31→    31→import { format } from 'date-fns';
+    32→    32→
+    33→    33→import { cn, formatDate, getToday } from '@/lib/utils';
+    34→    34→import { TASK_COLORS } from '@/lib/types';
+    35→    35→import { type Task, type Priority, type TaskCategory } from '@/lib/types';
+    36→    36→import { useTaskStore } from '@/stores/taskStore';
+    37→    37→import { GlassCard } from '@/components/shared/GlassCard';
+    38→    38→import { Button } from '@/components/ui/button';
+    39→    39→import { Input } from '@/components/ui/input';
+    40→    40→import { Textarea } from '@/components/ui/textarea';
+    41→    41→import { Label } from '@/components/ui/label';
+    42→    42→import { Badge } from '@/components/ui/badge';
+    43→    43→import { Checkbox } from '@/components/ui/checkbox';
+    44→    44→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+    45→    45→import { Calendar } from '@/components/ui/calendar';
+    46→    46→import {
+    47→    47→  Dialog,
+    48→    48→  DialogContent,
+    49→    49→  DialogHeader,
+    50→    50→  DialogTitle,
+    51→    51→  DialogDescription,
+    52→    52→  DialogFooter,
+    53→    53→} from '@/components/ui/dialog';
+    54→    54→import {
+    55→    55→  Select,
+    56→    56→  SelectContent,
+    57→    57→  SelectItem,
+    58→    58→  SelectTrigger,
+    59→    59→  SelectValue,
+    60→    60→} from '@/components/ui/select';
+    61→    61→
+    62→    62→// ── Constants ──────────────────────────────────────────────
+    63→    63→const CATEGORIES: { value: TaskCategory; label: string }[] = [
+    64→    64→  { value: 'study', label: 'Study' },
+    65→    65→  { value: 'revision', label: 'Revision' },
+    66→    66→  { value: 'assignment', label: 'Assignment' },
+    67→    67→  { value: 'exam', label: 'Exam' },
+    68→    68→  { value: 'project', label: 'Project' },
+    69→    69→  { value: 'notes', label: 'Notes' },
+    70→    70→];
+    71→    71→
+    72→    72→const PRIORITIES: { value: Priority; label: string; color: string }[] = [
+    73→    73→  { value: 'high', label: 'High', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+    74→    74→  { value: 'medium', label: 'Medium', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+    75→    75→  { value: 'low', label: 'Low', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
+    76→    76→];
+    77→    77→
+    78→    78→const SORT_OPTIONS = [
+    79→    79→  { value: 'date', label: 'Due Date' },
+    80→    80→  { value: 'priority', label: 'Priority' },
+    81→    81→  { value: 'name', label: 'Name' },
+    82→    82→] as const;
+    83→    83→
+    84→    84→const priorityWeight: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+    85→    85→
+    86→    86→// ── Helper: date ↔ string ─────────────────────────────────
+    87→    87→function toDateStr(d: Date): string {
+    88→    88→  return format(d, 'yyyy-MM-dd');
+    89→    89→}
+    90→    90→function toDate(s: string): Date {
+    91→    91→  return new Date(s + 'T00:00:00');
+    92→    92→}
+    93→    93→
+    94→    94→// ── Sortable Task Card ────────────────────────────────────
+    95→    95→function SortableTaskCard({
+    96→    96→  task,
+    97→    97→  onToggle,
+    98→    98→  onEdit,
+    99→    99→  onDelete,
+   100→   100→}: {
+   101→   101→  task: Task;
+   102→   102→  onToggle: () => void;
+   103→   103→  onEdit: () => void;
+   104→   104→  onDelete: () => void;
+   105→   105→}) {
+   106→   106→  const {
+   107→   107→    attributes,
+   108→   108→    listeners,
+   109→   109→    setNodeRef,
+   110→   110→    transform,
+   111→   111→    transition,
+   112→   112→    isDragging,
+   113→   113→  } = useSortable({ id: task.id });
+   114→   114→
+   115→   115→  const style = {
+   116→   116→    transform: CSS.Transform.toString(transform),
+   117→   117→    transition,
+   118→   118→  };
+   119→   119→
+   120→   120→  const priorityInfo = PRIORITIES.find((p) => p.value === task.priority)!;
+   121→   121→  const categoryLabel = CATEGORIES.find((c) => c.value === task.category)?.label ?? task.category;
+   122→   122→
+   123→   123→  return (
+   124→   124→    <motion.div
+   125→   125→      ref={setNodeRef}
+   126→   126→      style={style}
+   127→   127→      layout
+   128→   128→      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+   129→   129→      animate={{ opacity: 1, y: 0, scale: 1 }}
+   130→   130→      exit={{ opacity: 0, x: -60, scale: 0.95 }}
+   131→   131→      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+   132→   132→      className={cn(
+   133→   133→        'group relative flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-4 transition-colors',
+   134→   134→        'hover:bg-white/[0.07] hover:border-white/15',
+   135→   135→        isDragging && 'z-50 shadow-2xl shadow-purple-500/10 opacity-90',
+   136→   136→        task.completed && 'opacity-60'
+   137→   137→      )}
+   138→   138→    >
+   139→   139→      {/* Color indicator */}
+   140→   140→      <div
+   141→   141→        className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full"
+   142→   142→        style={{ backgroundColor: task.color }}
+   143→   143→      />
+   144→   144→
+   145→   145→      {/* Drag handle */}
+   146→   146→      <button
+   147→   147→        {...attributes}
+   148→   148→        {...listeners}
+   149→   149→        className="mt-0.5 cursor-grab text-white/20 hover:text-white/50 transition-colors active:cursor-grabbing shrink-0"
+   150→   150→        aria-label="Drag to reorder"
+   151→   151→      >
+   152→   152→        <GripVertical className="size-4" />
+   153→   153→      </button>
+   154→   154→
+   155→   155→      {/* Checkbox */}
+   156→   156→      <div className="pt-0.5 shrink-0">
+   157→   157→        <Checkbox
+   158→   158→          checked={task.completed}
+   159→   159→          onCheckedChange={onToggle}
+   160→   160→          className="data-[state=checked]:bg-purple-500 data-[state=checked]:border-purple-500"
+   161→   161→        />
+   162→   162→      </div>
+   163→   163→
+   164→   164→      {/* Content */}
+   165→   165→      <div className="flex-1 min-w-0">
+   166→   166→        <div className="flex items-center gap-2 flex-wrap">
+   167→   167→          <h3
+   168→   168→            className={cn(
+   169→   169→              'font-medium text-sm text-white/90 truncate',
+   170→   170→              task.completed && 'line-through text-white/40'
+   171→   171→            )}
+   172→   172→          >
+   173→   173→            {task.title}
+   174→   174→          </h3>
+   175→   175→          <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0', priorityInfo.color)}>
+   176→   176→            {priorityInfo.label}
+   177→   177→          </Badge>
+   178→   178→          <Badge
+   179→   179→            variant="outline"
+   180→   180→            className="text-[10px] px-1.5 py-0 bg-purple-500/10 text-purple-400 border-purple-500/20"
+   181→   181→          >
+   182→   182→            {categoryLabel}
+   183→   183→          </Badge>
+   184→   184→        </div>
+   185→   185→        {task.description && (
+   186→   186→          <p className="text-xs text-white/40 mt-1 line-clamp-1">{task.description}</p>
+   187→   187→        )}
+   188→   188→        <div className="flex items-center gap-3 mt-2 text-[11px] text-white/35">
+   189→   189→          {task.subject && (
+   190→   190→            <span className="flex items-center gap-1">
+   191→   191→              <BookOpen className="size-3" />
+   192→   192→              {task.subject}
+   193→   193→            </span>
+   194→   194→          )}
+   195→   195→          <span className="flex items-center gap-1">
+   196→   196→            <Clock className="size-3" />
+   197→   197→            {formatDate(task.dueDate)}
+   198→   198→          </span>
+   199→   199→        </div>
+   200→   200→      </div>
+   201→   201→
+   202→   202→      {/* Actions */}
+   203→   203→      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+   204→   204→        <Button variant="ghost" size="icon" className="size-7" onClick={onEdit}>
+   205→   205→          <Pencil className="size-3.5 text-white/50 hover:text-purple-400" />
+   206→   206→        </Button>
+   207→   207→        <Button variant="ghost" size="icon" className="size-7" onClick={onDelete}>
+   208→   208→          <Trash2 className="size-3.5 text-white/50 hover:text-red-400" />
+   209→   209→        </Button>
+   210→   210→      </div>
+   211→   211→    </motion.div>
+   212→   212→  );
+   213→   213→}
+   214→   214→
+   215→   215→// ── Task Dialog Form ──────────────────────────────────────
+   216→   216→interface TaskFormData {
+   217→   217→  title: string;
+   218→   218→  description: string;
+   219→   219→  priority: Priority;
+   220→   220→  dueDate: string;
+   221→   221→  subject: string;
+   222→   222→  category: TaskCategory;
+   223→   223→  color: string;
+   224→   224→}
+   225→   225→
+   226→   226→function TaskDialog({
+   227→   227→  open,
+   228→   228→  onOpenChange,
+   229→   229→  initial,
+   230→   230→  onSave,
+   231→   231→}: {
+   232→   232→  open: boolean;
+   233→   233→  onOpenChange: (v: boolean) => void;
+   234→   234→  initial?: Task | null;
+   235→   235→  onSave: (data: TaskFormData) => void;
+   236→   236→}) {
+   237→   237→  const [form, setForm] = useState<TaskFormData>({
+   238→   238→    title: '',
+   239→   239→    description: '',
+   240→   240→    priority: 'medium',
+   241→   241→    dueDate: getToday(),
+   242→   242→    subject: '',
+   243→   243→    category: 'study',
+   244→   244→    color: TASK_COLORS[0],
+   245→   245→  });
+   246→   246→
+   247→   247→  const isEditing = !!initial;
+   248→   248→
+   249→   249→  // Sync form when initial changes
+   250→   250→  const handleOpen = useCallback(
+   251→   251→    (v: boolean) => {
+   252→   252→      if (v && initial) {
+   253→   253→        setForm({
+   254→   254→          title: initial.title,
+   255→   255→          description: initial.description,
+   256→   256→          priority: initial.priority,
+   257→   257→          dueDate: initial.dueDate,
+   258→   258→          subject: initial.subject,
+   259→   259→          category: initial.category,
+   260→   260→          color: initial.color,
+   261→   261→        });
+   262→   262→      } else if (v) {
+   263→   263→        setForm({
+   264→   264→          title: '',
+   265→   265→          description: '',
+   266→   266→          priority: 'medium',
+   267→   267→          dueDate: getToday(),
+   268→   268→          subject: '',
+   269→   269→          category: 'study',
+   270→   270→          color: TASK_COLORS[0],
+   271→   271→        });
+   272→   272→      }
+   273→   273→      onOpenChange(v);
+   274→   274→    },
+   275→   275→    [initial, onOpenChange]
+   276→   276→  );
+   277→   277→
+   278→   278→  const handleSubmit = (e: React.FormEvent) => {
+   279→   279→    e.preventDefault();
+   280→   280→    if (!form.title.trim()) return;
+   281→   281→    onSave(form);
+   282→   282→    handleOpen(false);
+   283→   283→  };
+   284→   284→
+   285→   285→  return (
+   286→   286→    <Dialog open={open} onOpenChange={handleOpen}>
+   287→   287→      <DialogContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10 sm:max-w-lg">
+   288→   288→        <DialogHeader>
+   289→   289→          <DialogTitle className="text-white/90">
+   290→   290→            {isEditing ? 'Edit Task' : 'Add New Task'}
+   291→   291→          </DialogTitle>
+   292→   292→          <DialogDescription className="text-white/40">
+   293→   293→            {isEditing ? 'Update the task details below.' : 'Fill in the details for your new task.'}
+   294→   294→          </DialogDescription>
+   295→   295→        </DialogHeader>
+   296→   296→
+   297→   297→        <form onSubmit={handleSubmit} className="space-y-4">
+   298→   298→          {/* Title */}
+   299→   299→          <div className="space-y-1.5">
+   300→   300→            <Label className="text-white/60 text-xs">Title *</Label>
+   301→   301→            <Input
+   302→   302→              value={form.title}
+   303→   303→              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+   304→   304→              placeholder="What do you need to do?"
+   305→   305→              className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25"
+   306→   306→              autoFocus
+   307→   307→            />
+   308→   308→          </div>
+   309→   309→
+   310→   310→          {/* Description */}
+   311→   311→          <div className="space-y-1.5">
+   312→   312→            <Label className="text-white/60 text-xs">Description</Label>
+   313→   313→            <Textarea
+   314→   314→              value={form.description}
+   315→   315→              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+   316→   316→              placeholder="Add more details..."
+   317→   317→              className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25 min-h-[60px]"
+   318→   318→              rows={2}
+   319→   319→            />
+   320→   320→          </div>
+   321→   321→
+   322→   322→          {/* Priority & Category */}
+   323→   323→          <div className="grid grid-cols-2 gap-3">
+   324→   324→            <div className="space-y-1.5">
+   325→   325→              <Label className="text-white/60 text-xs">Priority</Label>
+   326→   326→              <Select
+   327→   327→                value={form.priority}
+   328→   328→                onValueChange={(v) => setForm((f) => ({ ...f, priority: v as Priority }))}
+   329→   329→              >
+   330→   330→                <SelectTrigger className="bg-white/5 border-white/10 text-white/90 w-full">
+   331→   331→                  <SelectValue />
+   332→   332→                </SelectTrigger>
+   333→   333→                <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   334→   334→                  {PRIORITIES.map((p) => (
+   335→   335→                    <SelectItem key={p.value} value={p.value} className="text-white/80 focus:bg-white/10 focus:text-white">
+   336→   336→                      {p.label}
+   337→   337→                    </SelectItem>
+   338→   338→                  ))}
+   339→   339→                </SelectContent>
+   340→   340→              </Select>
+   341→   341→            </div>
+   342→   342→            <div className="space-y-1.5">
+   343→   343→              <Label className="text-white/60 text-xs">Category</Label>
+   344→   344→              <Select
+   345→   345→                value={form.category}
+   346→   346→                onValueChange={(v) => setForm((f) => ({ ...f, category: v as TaskCategory }))}
+   347→   347→              >
+   348→   348→                <SelectTrigger className="bg-white/5 border-white/10 text-white/90 w-full">
+   349→   349→                  <SelectValue />
+   350→   350→                </SelectTrigger>
+   351→   351→                <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   352→   352→                  {CATEGORIES.map((c) => (
+   353→   353→                    <SelectItem key={c.value} value={c.value} className="text-white/80 focus:bg-white/10 focus:text-white">
+   354→   354→                      {c.label}
+   355→   355→                    </SelectItem>
+   356→   356→                  ))}
+   357→   357→                </SelectContent>
+   358→   358→              </Select>
+   359→   359→            </div>
+   360→   360→          </div>
+   361→   361→
+   362→   362→          {/* Due Date & Subject */}
+   363→   363→          <div className="grid grid-cols-2 gap-3">
+   364→   364→            <div className="space-y-1.5">
+   365→   365→              <Label className="text-white/60 text-xs">Due Date</Label>
+   366→   366→              <Input
+   367→   367→                type="date"
+   368→   368→                value={form.dueDate}
+   369→   369→                onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+   370→   370→                className="bg-white/5 border-white/10 text-white/90 [color-scheme:dark]"
+   371→   371→              />
+   372→   372→            </div>
+   373→   373→            <div className="space-y-1.5">
+   374→   374→              <Label className="text-white/60 text-xs">Subject</Label>
+   375→   375→              <Input
+   376→   376→                value={form.subject}
+   377→   377→                onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
+   378→   378→                placeholder="e.g. Mathematics"
+   379→   379→                className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25"
+   380→   380→              />
+   381→   381→            </div>
+   382→   382→          </div>
+   383→   383→
+   384→   384→          {/* Color Picker */}
+   385→   385→          <div className="space-y-1.5">
+   386→   386→            <Label className="text-white/60 text-xs">Color</Label>
+   387→   387→            <div className="flex gap-2 flex-wrap">
+   388→   388→              {TASK_COLORS.map((color) => (
+   389→   389→                <button
+   390→   390→                  key={color}
+   391→   391→                  type="button"
+   392→   392→                  onClick={() => setForm((f) => ({ ...f, color }))}
+   393→   393→                  className={cn(
+   394→   394→                    'size-7 rounded-full transition-all',
+   395→   395→                    form.color === color
+   396→   396→                      ? 'ring-2 ring-white/60 ring-offset-2 ring-offset-[#1a1a2e] scale-110'
+   397→   397→                      : 'hover:scale-110 opacity-70 hover:opacity-100'
+   398→   398→                  )}
+   399→   399→                  style={{ backgroundColor: color }}
+   400→   400→                />
+   401→   401→              ))}
+   402→   402→            </div>
+   403→   403→          </div>
+   404→   404→
+   405→   405→          <DialogFooter>
+   406→   406→            <Button
+   407→   407→              type="button"
+   408→   408→              variant="outline"
+   409→   409→              onClick={() => handleOpen(false)}
+   410→   410→              className="border-white/10 text-white/60 hover:text-white/90 hover:bg-white/10"
+   411→   411→            >
+   412→   412→              Cancel
+   413→   413→            </Button>
+   414→   414→            <Button
+   415→   415→              type="submit"
+   416→   416→              disabled={!form.title.trim()}
+   417→   417→              className="bg-purple-600 hover:bg-purple-500 text-white"
+   418→   418→            >
+   419→   419→              {isEditing ? 'Save Changes' : 'Add Task'}
+   420→   420→            </Button>
+   421→   421→          </DialogFooter>
+   422→   422→        </form>
+   423→   423→      </DialogContent>
+   424→   424→    </Dialog>
+   425→   425→  );
+   426→   426→}
+   427→   427→
+   428→   428→// ── Main Component ────────────────────────────────────────
+   429→   429→export default function StudyPlanner() {
+   430→   430→  const { tasks, addTask, updateTask, deleteTask, toggleTask, reorderTasks } = useTaskStore();
+   431→   431→
+   432→   432→  // UI state
+   433→   433→  const [dialogOpen, setDialogOpen] = useState(false);
+   434→   434→  const [editingTask, setEditingTask] = useState<Task | null>(null);
+   435→   435→  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+   436→   436→  const [viewTab, setViewTab] = useState('daily');
+   437→   437→  const [filterCategory, setFilterCategory] = useState<string>('all');
+   438→   438→  const [filterPriority, setFilterPriority] = useState<string>('all');
+   439→   439→  const [filterStatus, setFilterStatus] = useState<string>('all');
+   440→   440→  const [sortBy, setSortBy] = useState<string>('date');
+   441→   441→
+   442→   442→  // DnD sensors
+   443→   443→  const sensors = useSensors(
+   444→   444→    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+   445→   445→    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+   446→   446→  );
+   447→   447→
+   448→   448→  // Dates that have tasks
+   449→   449→  const taskDateSet = useMemo(() => {
+   450→   450→    const s = new Set<string>();
+   451→   451→    tasks.forEach((t) => s.add(t.dueDate));
+   452→   452→    return s;
+   453→   453→  }, [tasks]);
+   454→   454→
+   455→   455→  // Filtered & sorted tasks
+   456→   456→  const filteredTasks = useMemo(() => {
+   457→   457→    let list = [...tasks];
+   458→   458→
+   459→   459→    // Date filter based on view
+   460→   460→    if (selectedDate) {
+   461→   461→      const dateStr = toDateStr(selectedDate);
+   462→   462→      if (viewTab === 'daily') {
+   463→   463→        list = list.filter((t) => t.dueDate === dateStr);
+   464→   464→      } else if (viewTab === 'weekly') {
+   465→   465→        const sel = new Date(dateStr);
+   466→   466→        const startOfWeek = new Date(sel);
+   467→   467→        startOfWeek.setDate(sel.getDate() - sel.getDay());
+   468→   468→        const endOfWeek = new Date(startOfWeek);
+   469→   469→        endOfWeek.setDate(startOfWeek.getDate() + 6);
+   470→   470→        const startStr = toDateStr(startOfWeek);
+   471→   471→        const endStr = toDateStr(endOfWeek);
+   472→   472→        list = list.filter((t) => t.dueDate >= startStr && t.dueDate <= endStr);
+   473→   473→      } else if (viewTab === 'monthly') {
+   474→   474→        const sel = new Date(dateStr);
+   475→   475→        const prefix = format(sel, 'yyyy-MM');
+   476→   476→        list = list.filter((t) => t.dueDate.startsWith(prefix));
+   477→   477→      }
+   478→   478→    }
+   479→   479→
+   480→   480→    // Category filter
+   481→   481→    if (filterCategory !== 'all') {
+   482→   482→      list = list.filter((t) => t.category === filterCategory);
+   483→   483→    }
+   484→   484→    // Priority filter
+   485→   485→    if (filterPriority !== 'all') {
+   486→   486→      list = list.filter((t) => t.priority === filterPriority);
+   487→   487→    }
+   488→   488→    // Status filter
+   489→   489→    if (filterStatus === 'completed') {
+   490→   490→      list = list.filter((t) => t.completed);
+   491→   491→    } else if (filterStatus === 'pending') {
+   492→   492→      list = list.filter((t) => !t.completed);
+   493→   493→    }
+   494→   494→
+   495→   495→    // Sort
+   496→   496→    list.sort((a, b) => {
+   497→   497→      // Completed tasks go to bottom
+   498→   498→      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+   499→   499→
+   500→   500→      if (sortBy === 'date') return a.dueDate.localeCompare(b.dueDate);
+   501→   501→      if (sortBy === 'priority') return priorityWeight[a.priority] - priorityWeight[b.priority];
+   502→   502→      return a.title.localeCompare(b.title);
+   503→   503→    });
+   504→   504→
+   505→   505→    return list;
+   506→   506→  }, [tasks, selectedDate, viewTab, filterCategory, filterPriority, filterStatus, sortBy]);
+   507→   507→
+   508→   508→  // Group by category for display
+   509→   509→  const grouped = useMemo(() => {
+   510→   510→    if (filterCategory !== 'all') return { All: filteredTasks };
+   511→   511→    const map: Record<string, Task[]> = {};
+   512→   512→    filteredTasks.forEach((t) => {
+   513→   513→      const label = CATEGORIES.find((c) => c.value === t.category)?.label ?? t.category;
+   514→   514→      (map[label] ??= []).push(t);
+   515→   515→    });
+   516→   516→    return map;
+   517→   517→  }, [filteredTasks, filterCategory]);
+   518→   518→
+   519→   519→  // Handlers
+   520→   520→  const handleDragEnd = (event: DragEndEvent) => {
+   521→   521→    const { active, over } = event;
+   522→   522→    if (over && active.id !== over.id) {
+   523→   523→      reorderTasks(String(active.id), String(over.id));
+   524→   524→    }
+   525→   525→  };
+   526→   526→
+   527→   527→  const handleSave = (data: TaskFormData) => {
+   528→   528→    if (editingTask) {
+   529→   529→      updateTask(editingTask.id, data);
+   530→   530→      setEditingTask(null);
+   531→   531→    } else {
+   532→   532→      addTask(data);
+   533→   533→    }
+   534→   534→  };
+   535→   535→
+   536→   536→  const handleEdit = (task: Task) => {
+   537→   537→    setEditingTask(task);
+   538→   538→    setDialogOpen(true);
+   539→   539→  };
+   540→   540→
+   541→   541→  const handleDialogChange = (open: boolean) => {
+   542→   542→    setDialogOpen(open);
+   543→   543→    if (!open) setEditingTask(null);
+   544→   544→  };
+   545→   545→
+   546→   546→  // Day with task modifier for calendar
+   547→   547→  const modifiers = {
+   548→   548→    hasTask: (date: Date) => taskDateSet.has(toDateStr(date)),
+   549→   549→  };
+   550→   550→  const modifiersStyles = {
+   551→   551→    hasTask: {
+   552→   552→      fontWeight: 'bold' as const,
+   553→   553→      backgroundColor: 'rgba(124, 58, 237, 0.25)',
+   554→   554→      borderRadius: '50%',
+   555→   555→    },
+   556→   556→  };
+   557→   557→
+   558→   558→  return (
+   559→   559→    <div className="space-y-6">
+   560→   560→      {/* Header */}
+   561→   561→      <div className="flex items-center justify-between flex-wrap gap-4">
+   562→   562→        <div>
+   563→   563→          <h1 className="text-2xl font-bold text-white/90 flex items-center gap-2">
+   564→   564→            <CalendarDays className="size-6 text-purple-400" />
+   565→   565→            Study Planner
+   566→   566→          </h1>
+   567→   567→          <p className="text-sm text-white/40 mt-1">
+   568→   568→            Organize your study tasks and stay on track
+   569→   569→          </p>
+   570→   570→        </div>
+   571→   571→        <Button
+   572→   572→          onClick={() => {
+   573→   573→            setEditingTask(null);
+   574→   574→            setDialogOpen(true);
+   575→   575→          }}
+   576→   576→          className="bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20"
+   577→   577→        >
+   578→   578→          <Plus className="size-4" />
+   579→   579→          Add Task
+   580→   580→        </Button>
+   581→   581→      </div>
+   582→   582→
+   583→   583→      {/* View Tabs */}
+   584→   584→      <Tabs value={viewTab} onValueChange={setViewTab}>
+   585→   585→        <TabsList className="bg-white/5 border border-white/10">
+   586→   586→          {['daily', 'weekly', 'monthly'].map((v) => (
+   587→   587→            <TabsTrigger
+   588→   588→              key={v}
+   589→   589→              value={v}
+   590→   590→              className="data-[state=active]:bg-purple-600/30 data-[state=active]:text-purple-300 text-white/50"
+   591→   591→            >
+   592→   592→              {v.charAt(0).toUpperCase() + v.slice(1)}
+   593→   593→            </TabsTrigger>
+   594→   594→          ))}
+   595→   595→        </TabsList>
+   596→   596→      </Tabs>
+   597→   597→
+   598→   598→      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+   599→   599→        {/* Left Column: Calendar + Filters */}
+   600→   600→        <div className="space-y-4">
+   601→   601→          {/* Calendar */}
+   602→   602→          <GlassCard noPadding className="p-4">
+   603→   603→            <Calendar
+   604→   604→              mode="single"
+   605→   605→              selected={selectedDate}
+   606→   606→              onSelect={setSelectedDate}
+   607→   607→              modifiers={modifiers}
+   608→   608→              modifiersStyles={modifiersStyles}
+   609→   609→              className="bg-transparent border-0 p-0 [--cell-size:2rem] text-white/70"
+   610→   610→              classNames={{
+   611→   611→                months: 'flex flex-col',
+   612→   612→                month: 'space-y-2',
+   613→   613→                nav: 'space-x-1',
+   614→   614→                button_previous: 'text-white/50 hover:text-white/80 hover:bg-white/10',
+   615→   615→                button_next: 'text-white/50 hover:text-white/80 hover:bg-white/10',
+   616→   616→                month_caption: 'text-white/70',
+   617→   617→                caption_label: 'text-white/80',
+   618→   618→                weekdays: 'text-white/30',
+   619→   619→                weekday: 'text-white/30 text-[0.7rem]',
+   620→   620→                week: 'mt-1',
+   621→   621→                day: 'text-white/60',
+   622→   622→                today: 'bg-purple-500/20 text-purple-300 rounded-md',
+   623→   623→                outside: 'text-white/20 opacity-50',
+   624→   624→              }}
+   625→   625→            />
+   626→   626→          </GlassCard>
+   627→   627→
+   628→   628→          {/* Filters */}
+   629→   629→          <GlassCard className="space-y-4">
+   630→   630→            <div className="flex items-center gap-2 text-sm font-medium text-white/70">
+   631→   631→              <Filter className="size-4 text-purple-400" />
+   632→   632→              Filters & Sort
+   633→   633→            </div>
+   634→   634→
+   635→   635→            <div className="space-y-3">
+   636→   636→              <div className="space-y-1.5">
+   637→   637→                <Label className="text-white/50 text-xs">Category</Label>
+   638→   638→                <Select value={filterCategory} onValueChange={setFilterCategory}>
+   639→   639→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   640→   640→                    <SelectValue placeholder="All" />
+   641→   641→                  </SelectTrigger>
+   642→   642→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   643→   643→                    <SelectItem value="all" className="text-white/80">All Categories</SelectItem>
+   644→   644→                    {CATEGORIES.map((c) => (
+   645→   645→                      <SelectItem key={c.value} value={c.value} className="text-white/80">
+   646→   646→                        {c.label}
+   647→   647→                      </SelectItem>
+   648→   648→                    ))}
+   649→   649→                  </SelectContent>
+   650→   650→                </Select>
+   651→   651→              </div>
+   652→   652→
+   653→   653→              <div className="space-y-1.5">
+   654→   654→                <Label className="text-white/50 text-xs">Priority</Label>
+   655→   655→                <Select value={filterPriority} onValueChange={setFilterPriority}>
+   656→   656→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   657→   657→                    <SelectValue placeholder="All" />
+   658→   658→                  </SelectTrigger>
+   659→   659→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   660→   660→                    <SelectItem value="all" className="text-white/80">All Priorities</SelectItem>
+   661→   661→                    {PRIORITIES.map((p) => (
+   662→   662→                      <SelectItem key={p.value} value={p.value} className="text-white/80">
+   663→   663→                        {p.label}
+   664→   664→                      </SelectItem>
+   665→   665→                    ))}
+   666→   666→                  </SelectContent>
+   667→   667→                </Select>
+   668→   668→              </div>
+   669→   669→
+   670→   670→              <div className="space-y-1.5">
+   671→   671→                <Label className="text-white/50 text-xs">Status</Label>
+   672→   672→                <Select value={filterStatus} onValueChange={setFilterStatus}>
+   673→   673→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   674→   674→                    <SelectValue placeholder="All" />
+   675→   675→                  </SelectTrigger>
+   676→   676→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   677→   677→                    <SelectItem value="all" className="text-white/80">All</SelectItem>
+   678→   678→                    <SelectItem value="pending" className="text-white/80">Pending</SelectItem>
+   679→   679→                    <SelectItem value="completed" className="text-white/80">Completed</SelectItem>
+   680→   680→                  </SelectContent>
+   681→   681→                </Select>
+   682→   682→              </div>
+   683→   683→
+   684→   684→              <div className="space-y-1.5">
+   685→   685→                <Label className="text-white/50 text-xs">Sort By</Label>
+   686→   686→                <Select value={sortBy} onValueChange={setSortBy}>
+   687→   687→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   688→   688→                    <SelectValue />
+   689→   689→                  </SelectTrigger>
+   690→   690→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   691→   691→                    {SORT_OPTIONS.map((s) => (
+   692→   692→                      <SelectItem key={s.value} value={s.value} className="text-white/80">
+   693→   693→                        {s.label}
+   694→   694→                      </SelectItem>
+   695→   695→                    ))}
+   696→   696→                  </SelectContent>
+   697→   697→                </Select>
+   698→   698→              </div>
+   699→   699→            </div>
+   700→   700→          </GlassCard>
+   701→   701→
+   702→   702→          {/* Quick Stats */}
+   703→   703→          <div className="grid grid-cols-2 gap-3">
+   704→   704→            <GlassCard className="text-center p-3">
+   705→   705→              <div className="text-xl font-bold text-purple-400">
+   706→   706→                {tasks.filter((t) => !t.completed).length}
+   707→   707→              </div>
+   708→   708→              <div className="text-[10px] text-white/40 mt-0.5">Pending</div>
+   709→   709→            </GlassCard>
+   710→   710→            <GlassCard className="text-center p-3">
+   711→   711→              <div className="text-xl font-bold text-green-400">
+   712→   712→                {tasks.filter((t) => t.completed).length}
+   713→   713→              </div>
+   714→   714→              <div className="text-[10px] text-white/40 mt-0.5">Completed</div>
+   715→   715→            </GlassCard>
+   716→   716→          </div>
+   717→   717→        </div>
+   718→   718→
+   719→   719→        {/* Right Column: Task List */}
+   720→   720→        <div className="space-y-4">
+   721→   721→          {/* Task count */}
+   722→   722→          <div className="flex items-center justify-between text-sm">
+   723→   723→            <span className="text-white/50">
+   724→   724→              {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
+   725→   725→            </span>
+   726→   726→            {selectedDate && (
+   727→   727→              <span className="text-white/30 text-xs">
+   728→   728→                {format(selectedDate, 'MMM d, yyyy')}
+   729→   729→              </span>
+   730→   730→            )}
+   731→   731→          </div>
+   732→   732→
+   733→   733→          {/* Task groups */}
+   734→   734→          {Object.keys(grouped).length === 0 ? (
+   735→   735→            <GlassCard className="text-center py-12">
+   736→   736→              <CalendarDays className="size-10 text-white/15 mx-auto mb-3" />
+   737→   737→              <p className="text-white/30 text-sm">No tasks for this period</p>
+   738→   738→              <p className="text-white/20 text-xs mt-1">Click &quot;Add Task&quot; to get started</p>
+   739→   739→            </GlassCard>
+   740→   740→          ) : (
+   741→   741→            <DndContext
+   742→   742→              sensors={sensors}
+   743→   743→              collisionDetection={closestCenter}
+   744→   744→              onDragEnd={handleDragEnd}
+   745→   745→            >
+   746→   746→              {Object.entries(grouped).map(([category, catTasks]) => (
+   747→   747→                <div key={category} className="mb-6 last:mb-0">
+   748→   748→                  {filterCategory === 'all' && Object.keys(grouped).length > 1 && (
+   749→   749→                    <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
+   750→   750→                      <div className="h-px flex-1 bg-white/5" />
+   751→   751→                      {category}
+   752→   752→                      <span className="text-white/25 font-normal">
+   753→   753→                        ({catTasks.length})
+   754→   754→                      </span>
+   755→   755→                      <div className="h-px flex-1 bg-white/5" />
+   756→   756→                    </h3>
+   757→   757→                  )}
+   758→   758→                  <SortableContext
+   759→   759→                    items={catTasks.map((t) => t.id)}
+   760→   760→                    strategy={verticalListSortingStrategy}
+   761→   761→                  >
+   762→   762→                    <div className="space-y-2">
+   763→   763→                      <AnimatePresence mode="popLayout">
+   764→   764→                        {catTasks.map((task) => (
+   765→   765→                          <SortableTaskCard
+   766→   766→                            key={task.id}
+   767→   767→                            task={task}
+   768→   768→                            onToggle={() => toggleTask(task.id)}
+   769→   769→                            onEdit={() => handleEdit(task)}
+   770→   770→                            onDelete={() => deleteTask(task.id)}
+   771→   771→                          />
+   772→   772→                        ))}
+   773→   773→                      </AnimatePresence>
+   774→   774→                    </div>
+   775→   775→                  </SortableContext>
+   776→   776→                </div>
+   777→   777→              ))}
+   778→   778→            </DndContext>
+   779→   779→          )}
+   780→   780→        </div>
+   781→   781→      </div>
+   782→   782→
+   783→   783→      {/* Task Dialog */}
+   784→   784→      <TaskDialog
+   785→   785→        open={dialogOpen}
+   786→   786→        onOpenChange={handleDialogChange}
+   787→   787→        initial={editingTask}
+   788→   788→        onSave={handleSave}
+   789→   789→      />
+   790→   790→    </div>
+   791→   791→  );
+   792→   792→}

@@ -1,0 +1,792 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo, useCallback } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import {
+     6→  Plus,
+     7→  GripVertical,
+     8→  Pencil,
+     9→  Trash2,
+    10→  CalendarDays,
+    11→  Filter,
+    12→  Clock,
+    13→  BookOpen,
+    14→} from 'lucide-react';
+    15→import {
+    16→  DndContext,
+    17→  closestCenter,
+    18→  KeyboardSensor,
+    19→  PointerSensor,
+    20→  useSensor,
+    21→  useSensors,
+    22→  type DragEndEvent,
+    23→} from '@dnd-kit/core';
+    24→import {
+    25→  SortableContext,
+    26→  sortableKeyboardCoordinates,
+    27→  useSortable,
+    28→  verticalListSortingStrategy,
+    29→} from '@dnd-kit/sortable';
+    30→import { CSS } from '@dnd-kit/utilities';
+    31→import { format } from 'date-fns';
+    32→
+    33→import { cn, formatDate, getToday } from '@/lib/utils';
+    34→import { TASK_COLORS } from '@/lib/types';
+    35→import { type Task, type Priority, type TaskCategory } from '@/lib/types';
+    36→import { useTaskStore } from '@/stores/taskStore';
+    37→import { GlassCard } from '@/components/shared/GlassCard';
+    38→import { Button } from '@/components/ui/button';
+    39→import { Input } from '@/components/ui/input';
+    40→import { Textarea } from '@/components/ui/textarea';
+    41→import { Label } from '@/components/ui/label';
+    42→import { Badge } from '@/components/ui/badge';
+    43→import { Checkbox } from '@/components/ui/checkbox';
+    44→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+    45→import { Calendar } from '@/components/ui/calendar';
+    46→import {
+    47→  Dialog,
+    48→  DialogContent,
+    49→  DialogHeader,
+    50→  DialogTitle,
+    51→  DialogDescription,
+    52→  DialogFooter,
+    53→} from '@/components/ui/dialog';
+    54→import {
+    55→  Select,
+    56→  SelectContent,
+    57→  SelectItem,
+    58→  SelectTrigger,
+    59→  SelectValue,
+    60→} from '@/components/ui/select';
+    61→
+    62→// ── Constants ──────────────────────────────────────────────
+    63→const CATEGORIES: { value: TaskCategory; label: string }[] = [
+    64→  { value: 'study', label: 'Study' },
+    65→  { value: 'revision', label: 'Revision' },
+    66→  { value: 'assignment', label: 'Assignment' },
+    67→  { value: 'exam', label: 'Exam' },
+    68→  { value: 'project', label: 'Project' },
+    69→  { value: 'notes', label: 'Notes' },
+    70→];
+    71→
+    72→const PRIORITIES: { value: Priority; label: string; color: string }[] = [
+    73→  { value: 'high', label: 'High', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+    74→  { value: 'medium', label: 'Medium', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+    75→  { value: 'low', label: 'Low', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
+    76→];
+    77→
+    78→const SORT_OPTIONS = [
+    79→  { value: 'date', label: 'Due Date' },
+    80→  { value: 'priority', label: 'Priority' },
+    81→  { value: 'name', label: 'Name' },
+    82→] as const;
+    83→
+    84→const priorityWeight: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+    85→
+    86→// ── Helper: date ↔ string ─────────────────────────────────
+    87→function toDateStr(d: Date): string {
+    88→  return format(d, 'yyyy-MM-dd');
+    89→}
+    90→function toDate(s: string): Date {
+    91→  return new Date(s + 'T00:00:00');
+    92→}
+    93→
+    94→// ── Sortable Task Card ────────────────────────────────────
+    95→function SortableTaskCard({
+    96→  task,
+    97→  onToggle,
+    98→  onEdit,
+    99→  onDelete,
+   100→}: {
+   101→  task: Task;
+   102→  onToggle: () => void;
+   103→  onEdit: () => void;
+   104→  onDelete: () => void;
+   105→}) {
+   106→  const {
+   107→    attributes,
+   108→    listeners,
+   109→    setNodeRef,
+   110→    transform,
+   111→    transition,
+   112→    isDragging,
+   113→  } = useSortable({ id: task.id });
+   114→
+   115→  const style = {
+   116→    transform: CSS.Transform.toString(transform),
+   117→    transition,
+   118→  };
+   119→
+   120→  const priorityInfo = PRIORITIES.find((p) => p.value === task.priority)!;
+   121→  const categoryLabel = CATEGORIES.find((c) => c.value === task.category)?.label ?? task.category;
+   122→
+   123→  return (
+   124→    <motion.div
+   125→      ref={setNodeRef}
+   126→      style={style}
+   127→      layout
+   128→      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+   129→      animate={{ opacity: 1, y: 0, scale: 1 }}
+   130→      exit={{ opacity: 0, x: -60, scale: 0.95 }}
+   131→      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+   132→      className={cn(
+   133→        'group relative flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-4 transition-colors',
+   134→        'hover:bg-white/[0.07] hover:border-white/15',
+   135→        isDragging && 'z-50 shadow-2xl shadow-purple-500/10 opacity-90',
+   136→        task.completed && 'opacity-60'
+   137→      )}
+   138→    >
+   139→      {/* Color indicator */}
+   140→      <div
+   141→        className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full"
+   142→        style={{ backgroundColor: task.color }}
+   143→      />
+   144→
+   145→      {/* Drag handle */}
+   146→      <button
+   147→        {...attributes}
+   148→        {...listeners}
+   149→        className="mt-0.5 cursor-grab text-white/20 hover:text-white/50 transition-colors active:cursor-grabbing shrink-0"
+   150→        aria-label="Drag to reorder"
+   151→      >
+   152→        <GripVertical className="size-4" />
+   153→      </button>
+   154→
+   155→      {/* Checkbox */}
+   156→      <div className="pt-0.5 shrink-0">
+   157→        <Checkbox
+   158→          checked={task.completed}
+   159→          onCheckedChange={onToggle}
+   160→          className="data-[state=checked]:bg-purple-500 data-[state=checked]:border-purple-500"
+   161→        />
+   162→      </div>
+   163→
+   164→      {/* Content */}
+   165→      <div className="flex-1 min-w-0">
+   166→        <div className="flex items-center gap-2 flex-wrap">
+   167→          <h3
+   168→            className={cn(
+   169→              'font-medium text-sm text-white/90 truncate',
+   170→              task.completed && 'line-through text-white/40'
+   171→            )}
+   172→          >
+   173→            {task.title}
+   174→          </h3>
+   175→          <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0', priorityInfo.color)}>
+   176→            {priorityInfo.label}
+   177→          </Badge>
+   178→          <Badge
+   179→            variant="outline"
+   180→            className="text-[10px] px-1.5 py-0 bg-purple-500/10 text-purple-400 border-purple-500/20"
+   181→          >
+   182→            {categoryLabel}
+   183→          </Badge>
+   184→        </div>
+   185→        {task.description && (
+   186→          <p className="text-xs text-white/40 mt-1 line-clamp-1">{task.description}</p>
+   187→        )}
+   188→        <div className="flex items-center gap-3 mt-2 text-[11px] text-white/35">
+   189→          {task.subject && (
+   190→            <span className="flex items-center gap-1">
+   191→              <BookOpen className="size-3" />
+   192→              {task.subject}
+   193→            </span>
+   194→          )}
+   195→          <span className="flex items-center gap-1">
+   196→            <Clock className="size-3" />
+   197→            {formatDate(task.dueDate)}
+   198→          </span>
+   199→        </div>
+   200→      </div>
+   201→
+   202→      {/* Actions */}
+   203→      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+   204→        <Button variant="ghost" size="icon" className="size-7" onClick={onEdit}>
+   205→          <Pencil className="size-3.5 text-white/50 hover:text-purple-400" />
+   206→        </Button>
+   207→        <Button variant="ghost" size="icon" className="size-7" onClick={onDelete}>
+   208→          <Trash2 className="size-3.5 text-white/50 hover:text-red-400" />
+   209→        </Button>
+   210→      </div>
+   211→    </motion.div>
+   212→  );
+   213→}
+   214→
+   215→// ── Task Dialog Form ──────────────────────────────────────
+   216→interface TaskFormData {
+   217→  title: string;
+   218→  description: string;
+   219→  priority: Priority;
+   220→  dueDate: string;
+   221→  subject: string;
+   222→  category: TaskCategory;
+   223→  color: string;
+   224→}
+   225→
+   226→function TaskDialog({
+   227→  open,
+   228→  onOpenChange,
+   229→  initial,
+   230→  onSave,
+   231→}: {
+   232→  open: boolean;
+   233→  onOpenChange: (v: boolean) => void;
+   234→  initial?: Task | null;
+   235→  onSave: (data: TaskFormData) => void;
+   236→}) {
+   237→  const [form, setForm] = useState<TaskFormData>({
+   238→    title: '',
+   239→    description: '',
+   240→    priority: 'medium',
+   241→    dueDate: getToday(),
+   242→    subject: '',
+   243→    category: 'study',
+   244→    color: TASK_COLORS[0],
+   245→  });
+   246→
+   247→  const isEditing = !!initial;
+   248→
+   249→  // Sync form when initial changes
+   250→  const handleOpen = useCallback(
+   251→    (v: boolean) => {
+   252→      if (v && initial) {
+   253→        setForm({
+   254→          title: initial.title,
+   255→          description: initial.description,
+   256→          priority: initial.priority,
+   257→          dueDate: initial.dueDate,
+   258→          subject: initial.subject,
+   259→          category: initial.category,
+   260→          color: initial.color,
+   261→        });
+   262→      } else if (v) {
+   263→        setForm({
+   264→          title: '',
+   265→          description: '',
+   266→          priority: 'medium',
+   267→          dueDate: getToday(),
+   268→          subject: '',
+   269→          category: 'study',
+   270→          color: TASK_COLORS[0],
+   271→        });
+   272→      }
+   273→      onOpenChange(v);
+   274→    },
+   275→    [initial, onOpenChange]
+   276→  );
+   277→
+   278→  const handleSubmit = (e: React.FormEvent) => {
+   279→    e.preventDefault();
+   280→    if (!form.title.trim()) return;
+   281→    onSave(form);
+   282→    handleOpen(false);
+   283→  };
+   284→
+   285→  return (
+   286→    <Dialog open={open} onOpenChange={handleOpen}>
+   287→      <DialogContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10 sm:max-w-lg">
+   288→        <DialogHeader>
+   289→          <DialogTitle className="text-white/90">
+   290→            {isEditing ? 'Edit Task' : 'Add New Task'}
+   291→          </DialogTitle>
+   292→          <DialogDescription className="text-white/40">
+   293→            {isEditing ? 'Update the task details below.' : 'Fill in the details for your new task.'}
+   294→          </DialogDescription>
+   295→        </DialogHeader>
+   296→
+   297→        <form onSubmit={handleSubmit} className="space-y-4">
+   298→          {/* Title */}
+   299→          <div className="space-y-1.5">
+   300→            <Label className="text-white/60 text-xs">Title *</Label>
+   301→            <Input
+   302→              value={form.title}
+   303→              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+   304→              placeholder="What do you need to do?"
+   305→              className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25"
+   306→              autoFocus
+   307→            />
+   308→          </div>
+   309→
+   310→          {/* Description */}
+   311→          <div className="space-y-1.5">
+   312→            <Label className="text-white/60 text-xs">Description</Label>
+   313→            <Textarea
+   314→              value={form.description}
+   315→              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+   316→              placeholder="Add more details..."
+   317→              className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25 min-h-[60px]"
+   318→              rows={2}
+   319→            />
+   320→          </div>
+   321→
+   322→          {/* Priority & Category */}
+   323→          <div className="grid grid-cols-2 gap-3">
+   324→            <div className="space-y-1.5">
+   325→              <Label className="text-white/60 text-xs">Priority</Label>
+   326→              <Select
+   327→                value={form.priority}
+   328→                onValueChange={(v) => setForm((f) => ({ ...f, priority: v as Priority }))}
+   329→              >
+   330→                <SelectTrigger className="bg-white/5 border-white/10 text-white/90 w-full">
+   331→                  <SelectValue />
+   332→                </SelectTrigger>
+   333→                <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   334→                  {PRIORITIES.map((p) => (
+   335→                    <SelectItem key={p.value} value={p.value} className="text-white/80 focus:bg-white/10 focus:text-white">
+   336→                      {p.label}
+   337→                    </SelectItem>
+   338→                  ))}
+   339→                </SelectContent>
+   340→              </Select>
+   341→            </div>
+   342→            <div className="space-y-1.5">
+   343→              <Label className="text-white/60 text-xs">Category</Label>
+   344→              <Select
+   345→                value={form.category}
+   346→                onValueChange={(v) => setForm((f) => ({ ...f, category: v as TaskCategory }))}
+   347→              >
+   348→                <SelectTrigger className="bg-white/5 border-white/10 text-white/90 w-full">
+   349→                  <SelectValue />
+   350→                </SelectTrigger>
+   351→                <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   352→                  {CATEGORIES.map((c) => (
+   353→                    <SelectItem key={c.value} value={c.value} className="text-white/80 focus:bg-white/10 focus:text-white">
+   354→                      {c.label}
+   355→                    </SelectItem>
+   356→                  ))}
+   357→                </SelectContent>
+   358→              </Select>
+   359→            </div>
+   360→          </div>
+   361→
+   362→          {/* Due Date & Subject */}
+   363→          <div className="grid grid-cols-2 gap-3">
+   364→            <div className="space-y-1.5">
+   365→              <Label className="text-white/60 text-xs">Due Date</Label>
+   366→              <Input
+   367→                type="date"
+   368→                value={form.dueDate}
+   369→                onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+   370→                className="bg-white/5 border-white/10 text-white/90 [color-scheme:dark]"
+   371→              />
+   372→            </div>
+   373→            <div className="space-y-1.5">
+   374→              <Label className="text-white/60 text-xs">Subject</Label>
+   375→              <Input
+   376→                value={form.subject}
+   377→                onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
+   378→                placeholder="e.g. Mathematics"
+   379→                className="bg-white/5 border-white/10 text-white/90 placeholder:text-white/25"
+   380→              />
+   381→            </div>
+   382→          </div>
+   383→
+   384→          {/* Color Picker */}
+   385→          <div className="space-y-1.5">
+   386→            <Label className="text-white/60 text-xs">Color</Label>
+   387→            <div className="flex gap-2 flex-wrap">
+   388→              {TASK_COLORS.map((color) => (
+   389→                <button
+   390→                  key={color}
+   391→                  type="button"
+   392→                  onClick={() => setForm((f) => ({ ...f, color }))}
+   393→                  className={cn(
+   394→                    'size-7 rounded-full transition-all',
+   395→                    form.color === color
+   396→                      ? 'ring-2 ring-white/60 ring-offset-2 ring-offset-[#1a1a2e] scale-110'
+   397→                      : 'hover:scale-110 opacity-70 hover:opacity-100'
+   398→                  )}
+   399→                  style={{ backgroundColor: color }}
+   400→                />
+   401→              ))}
+   402→            </div>
+   403→          </div>
+   404→
+   405→          <DialogFooter>
+   406→            <Button
+   407→              type="button"
+   408→              variant="outline"
+   409→              onClick={() => handleOpen(false)}
+   410→              className="border-white/10 text-white/60 hover:text-white/90 hover:bg-white/10"
+   411→            >
+   412→              Cancel
+   413→            </Button>
+   414→            <Button
+   415→              type="submit"
+   416→              disabled={!form.title.trim()}
+   417→              className="bg-purple-600 hover:bg-purple-500 text-white"
+   418→            >
+   419→              {isEditing ? 'Save Changes' : 'Add Task'}
+   420→            </Button>
+   421→          </DialogFooter>
+   422→        </form>
+   423→      </DialogContent>
+   424→    </Dialog>
+   425→  );
+   426→}
+   427→
+   428→// ── Main Component ────────────────────────────────────────
+   429→export default function StudyPlanner() {
+   430→  const { tasks, addTask, updateTask, deleteTask, toggleTask, reorderTasks } = useTaskStore();
+   431→
+   432→  // UI state
+   433→  const [dialogOpen, setDialogOpen] = useState(false);
+   434→  const [editingTask, setEditingTask] = useState<Task | null>(null);
+   435→  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+   436→  const [viewTab, setViewTab] = useState('daily');
+   437→  const [filterCategory, setFilterCategory] = useState<string>('all');
+   438→  const [filterPriority, setFilterPriority] = useState<string>('all');
+   439→  const [filterStatus, setFilterStatus] = useState<string>('all');
+   440→  const [sortBy, setSortBy] = useState<string>('date');
+   441→
+   442→  // DnD sensors
+   443→  const sensors = useSensors(
+   444→    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+   445→    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+   446→  );
+   447→
+   448→  // Dates that have tasks
+   449→  const taskDateSet = useMemo(() => {
+   450→    const s = new Set<string>();
+   451→    tasks.forEach((t) => s.add(t.dueDate));
+   452→    return s;
+   453→  }, [tasks]);
+   454→
+   455→  // Filtered & sorted tasks
+   456→  const filteredTasks = useMemo(() => {
+   457→    let list = [...tasks];
+   458→
+   459→    // Date filter based on view
+   460→    if (selectedDate) {
+   461→      const dateStr = toDateStr(selectedDate);
+   462→      if (viewTab === 'daily') {
+   463→        list = list.filter((t) => t.dueDate === dateStr);
+   464→      } else if (viewTab === 'weekly') {
+   465→        const sel = new Date(dateStr);
+   466→        const startOfWeek = new Date(sel);
+   467→        startOfWeek.setDate(sel.getDate() - sel.getDay());
+   468→        const endOfWeek = new Date(startOfWeek);
+   469→        endOfWeek.setDate(startOfWeek.getDate() + 6);
+   470→        const startStr = toDateStr(startOfWeek);
+   471→        const endStr = toDateStr(endOfWeek);
+   472→        list = list.filter((t) => t.dueDate >= startStr && t.dueDate <= endStr);
+   473→      } else if (viewTab === 'monthly') {
+   474→        const sel = new Date(dateStr);
+   475→        const prefix = format(sel, 'yyyy-MM');
+   476→        list = list.filter((t) => t.dueDate.startsWith(prefix));
+   477→      }
+   478→    }
+   479→
+   480→    // Category filter
+   481→    if (filterCategory !== 'all') {
+   482→      list = list.filter((t) => t.category === filterCategory);
+   483→    }
+   484→    // Priority filter
+   485→    if (filterPriority !== 'all') {
+   486→      list = list.filter((t) => t.priority === filterPriority);
+   487→    }
+   488→    // Status filter
+   489→    if (filterStatus === 'completed') {
+   490→      list = list.filter((t) => t.completed);
+   491→    } else if (filterStatus === 'pending') {
+   492→      list = list.filter((t) => !t.completed);
+   493→    }
+   494→
+   495→    // Sort
+   496→    list.sort((a, b) => {
+   497→      // Completed tasks go to bottom
+   498→      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+   499→
+   500→      if (sortBy === 'date') return a.dueDate.localeCompare(b.dueDate);
+   501→      if (sortBy === 'priority') return priorityWeight[a.priority] - priorityWeight[b.priority];
+   502→      return a.title.localeCompare(b.title);
+   503→    });
+   504→
+   505→    return list;
+   506→  }, [tasks, selectedDate, viewTab, filterCategory, filterPriority, filterStatus, sortBy]);
+   507→
+   508→  // Group by category for display
+   509→  const grouped = useMemo(() => {
+   510→    if (filterCategory !== 'all') return { All: filteredTasks };
+   511→    const map: Record<string, Task[]> = {};
+   512→    filteredTasks.forEach((t) => {
+   513→      const label = CATEGORIES.find((c) => c.value === t.category)?.label ?? t.category;
+   514→      (map[label] ??= []).push(t);
+   515→    });
+   516→    return map;
+   517→  }, [filteredTasks, filterCategory]);
+   518→
+   519→  // Handlers
+   520→  const handleDragEnd = (event: DragEndEvent) => {
+   521→    const { active, over } = event;
+   522→    if (over && active.id !== over.id) {
+   523→      reorderTasks(String(active.id), String(over.id));
+   524→    }
+   525→  };
+   526→
+   527→  const handleSave = (data: TaskFormData) => {
+   528→    if (editingTask) {
+   529→      updateTask(editingTask.id, data);
+   530→      setEditingTask(null);
+   531→    } else {
+   532→      addTask(data);
+   533→    }
+   534→  };
+   535→
+   536→  const handleEdit = (task: Task) => {
+   537→    setEditingTask(task);
+   538→    setDialogOpen(true);
+   539→  };
+   540→
+   541→  const handleDialogChange = (open: boolean) => {
+   542→    setDialogOpen(open);
+   543→    if (!open) setEditingTask(null);
+   544→  };
+   545→
+   546→  // Day with task modifier for calendar
+   547→  const modifiers = {
+   548→    hasTask: (date: Date) => taskDateSet.has(toDateStr(date)),
+   549→  };
+   550→  const modifiersStyles = {
+   551→    hasTask: {
+   552→      fontWeight: 'bold' as const,
+   553→      backgroundColor: 'rgba(124, 58, 237, 0.25)',
+   554→      borderRadius: '50%',
+   555→    },
+   556→  };
+   557→
+   558→  return (
+   559→    <div className="space-y-6">
+   560→      {/* Header */}
+   561→      <div className="flex items-center justify-between flex-wrap gap-4">
+   562→        <div>
+   563→          <h1 className="text-2xl font-bold text-white/90 flex items-center gap-2">
+   564→            <CalendarDays className="size-6 text-purple-400" />
+   565→            Study Planner
+   566→          </h1>
+   567→          <p className="text-sm text-white/40 mt-1">
+   568→            Organize your study tasks and stay on track
+   569→          </p>
+   570→        </div>
+   571→        <Button
+   572→          onClick={() => {
+   573→            setEditingTask(null);
+   574→            setDialogOpen(true);
+   575→          }}
+   576→          className="bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20"
+   577→        >
+   578→          <Plus className="size-4" />
+   579→          Add Task
+   580→        </Button>
+   581→      </div>
+   582→
+   583→      {/* View Tabs */}
+   584→      <Tabs value={viewTab} onValueChange={setViewTab}>
+   585→        <TabsList className="bg-white/5 border border-white/10">
+   586→          {['daily', 'weekly', 'monthly'].map((v) => (
+   587→            <TabsTrigger
+   588→              key={v}
+   589→              value={v}
+   590→              className="data-[state=active]:bg-purple-600/30 data-[state=active]:text-purple-300 text-white/50"
+   591→            >
+   592→              {v.charAt(0).toUpperCase() + v.slice(1)}
+   593→            </TabsTrigger>
+   594→          ))}
+   595→        </TabsList>
+   596→      </Tabs>
+   597→
+   598→      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+   599→        {/* Left Column: Calendar + Filters */}
+   600→        <div className="space-y-4">
+   601→          {/* Calendar */}
+   602→          <GlassCard noPadding className="p-4">
+   603→            <Calendar
+   604→              mode="single"
+   605→              selected={selectedDate}
+   606→              onSelect={setSelectedDate}
+   607→              modifiers={modifiers}
+   608→              modifiersStyles={modifiersStyles}
+   609→              className="bg-transparent border-0 p-0 [--cell-size:2rem] text-white/70"
+   610→              classNames={{
+   611→                months: 'flex flex-col',
+   612→                month: 'space-y-2',
+   613→                nav: 'space-x-1',
+   614→                button_previous: 'text-white/50 hover:text-white/80 hover:bg-white/10',
+   615→                button_next: 'text-white/50 hover:text-white/80 hover:bg-white/10',
+   616→                month_caption: 'text-white/70',
+   617→                caption_label: 'text-white/80',
+   618→                weekdays: 'text-white/30',
+   619→                weekday: 'text-white/30 text-[0.7rem]',
+   620→                week: 'mt-1',
+   621→                day: 'text-white/60',
+   622→                today: 'bg-purple-500/20 text-purple-300 rounded-md',
+   623→                outside: 'text-white/20 opacity-50',
+   624→              }}
+   625→            />
+   626→          </GlassCard>
+   627→
+   628→          {/* Filters */}
+   629→          <GlassCard className="space-y-4">
+   630→            <div className="flex items-center gap-2 text-sm font-medium text-white/70">
+   631→              <Filter className="size-4 text-purple-400" />
+   632→              Filters & Sort
+   633→            </div>
+   634→
+   635→            <div className="space-y-3">
+   636→              <div className="space-y-1.5">
+   637→                <Label className="text-white/50 text-xs">Category</Label>
+   638→                <Select value={filterCategory} onValueChange={setFilterCategory}>
+   639→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   640→                    <SelectValue placeholder="All" />
+   641→                  </SelectTrigger>
+   642→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   643→                    <SelectItem value="all" className="text-white/80">All Categories</SelectItem>
+   644→                    {CATEGORIES.map((c) => (
+   645→                      <SelectItem key={c.value} value={c.value} className="text-white/80">
+   646→                        {c.label}
+   647→                      </SelectItem>
+   648→                    ))}
+   649→                  </SelectContent>
+   650→                </Select>
+   651→              </div>
+   652→
+   653→              <div className="space-y-1.5">
+   654→                <Label className="text-white/50 text-xs">Priority</Label>
+   655→                <Select value={filterPriority} onValueChange={setFilterPriority}>
+   656→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   657→                    <SelectValue placeholder="All" />
+   658→                  </SelectTrigger>
+   659→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   660→                    <SelectItem value="all" className="text-white/80">All Priorities</SelectItem>
+   661→                    {PRIORITIES.map((p) => (
+   662→                      <SelectItem key={p.value} value={p.value} className="text-white/80">
+   663→                        {p.label}
+   664→                      </SelectItem>
+   665→                    ))}
+   666→                  </SelectContent>
+   667→                </Select>
+   668→              </div>
+   669→
+   670→              <div className="space-y-1.5">
+   671→                <Label className="text-white/50 text-xs">Status</Label>
+   672→                <Select value={filterStatus} onValueChange={setFilterStatus}>
+   673→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   674→                    <SelectValue placeholder="All" />
+   675→                  </SelectTrigger>
+   676→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   677→                    <SelectItem value="all" className="text-white/80">All</SelectItem>
+   678→                    <SelectItem value="pending" className="text-white/80">Pending</SelectItem>
+   679→                    <SelectItem value="completed" className="text-white/80">Completed</SelectItem>
+   680→                  </SelectContent>
+   681→                </Select>
+   682→              </div>
+   683→
+   684→              <div className="space-y-1.5">
+   685→                <Label className="text-white/50 text-xs">Sort By</Label>
+   686→                <Select value={sortBy} onValueChange={setSortBy}>
+   687→                  <SelectTrigger className="bg-white/5 border-white/10 text-white/80 w-full text-xs h-8">
+   688→                    <SelectValue />
+   689→                  </SelectTrigger>
+   690→                  <SelectContent className="bg-[#1a1a2e]/95 backdrop-blur-xl border-white/10">
+   691→                    {SORT_OPTIONS.map((s) => (
+   692→                      <SelectItem key={s.value} value={s.value} className="text-white/80">
+   693→                        {s.label}
+   694→                      </SelectItem>
+   695→                    ))}
+   696→                  </SelectContent>
+   697→                </Select>
+   698→              </div>
+   699→            </div>
+   700→          </GlassCard>
+   701→
+   702→          {/* Quick Stats */}
+   703→          <div className="grid grid-cols-2 gap-3">
+   704→            <GlassCard className="text-center p-3">
+   705→              <div className="text-xl font-bold text-purple-400">
+   706→                {tasks.filter((t) => !t.completed).length}
+   707→              </div>
+   708→              <div className="text-[10px] text-white/40 mt-0.5">Pending</div>
+   709→            </GlassCard>
+   710→            <GlassCard className="text-center p-3">
+   711→              <div className="text-xl font-bold text-green-400">
+   712→                {tasks.filter((t) => t.completed).length}
+   713→              </div>
+   714→              <div className="text-[10px] text-white/40 mt-0.5">Completed</div>
+   715→            </GlassCard>
+   716→          </div>
+   717→        </div>
+   718→
+   719→        {/* Right Column: Task List */}
+   720→        <div className="space-y-4">
+   721→          {/* Task count */}
+   722→          <div className="flex items-center justify-between text-sm">
+   723→            <span className="text-white/50">
+   724→              {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
+   725→            </span>
+   726→            {selectedDate && (
+   727→              <span className="text-white/30 text-xs">
+   728→                {format(selectedDate, 'MMM d, yyyy')}
+   729→              </span>
+   730→            )}
+   731→          </div>
+   732→
+   733→          {/* Task groups */}
+   734→          {Object.keys(grouped).length === 0 ? (
+   735→            <GlassCard className="text-center py-12">
+   736→              <CalendarDays className="size-10 text-white/15 mx-auto mb-3" />
+   737→              <p className="text-white/30 text-sm">No tasks for this period</p>
+   738→              <p className="text-white/20 text-xs mt-1">Click &quot;Add Task&quot; to get started</p>
+   739→            </GlassCard>
+   740→          ) : (
+   741→            <DndContext
+   742→              sensors={sensors}
+   743→              collisionDetection={closestCenter}
+   744→              onDragEnd={handleDragEnd}
+   745→            >
+   746→              {Object.entries(grouped).map(([category, catTasks]) => (
+   747→                <div key={category} className="mb-6 last:mb-0">
+   748→                  {filterCategory === 'all' && Object.keys(grouped).length > 1 && (
+   749→                    <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
+   750→                      <div className="h-px flex-1 bg-white/5" />
+   751→                      {category}
+   752→                      <span className="text-white/25 font-normal">
+   753→                        ({catTasks.length})
+   754→                      </span>
+   755→                      <div className="h-px flex-1 bg-white/5" />
+   756→                    </h3>
+   757→                  )}
+   758→                  <SortableContext
+   759→                    items={catTasks.map((t) => t.id)}
+   760→                    strategy={verticalListSortingStrategy}
+   761→                  >
+   762→                    <div className="space-y-2">
+   763→                      <AnimatePresence mode="popLayout">
+   764→                        {catTasks.map((task) => (
+   765→                          <SortableTaskCard
+   766→                            key={task.id}
+   767→                            task={task}
+   768→                            onToggle={() => toggleTask(task.id)}
+   769→                            onEdit={() => handleEdit(task)}
+   770→                            onDelete={() => deleteTask(task.id)}
+   771→                          />
+   772→                        ))}
+   773→                      </AnimatePresence>
+   774→                    </div>
+   775→                  </SortableContext>
+   776→                </div>
+   777→              ))}
+   778→            </DndContext>
+   779→          )}
+   780→        </div>
+   781→      </div>
+   782→
+   783→      {/* Task Dialog */}
+   784→      <TaskDialog
+   785→        open={dialogOpen}
+   786→        onOpenChange={handleDialogChange}
+   787→        initial={editingTask}
+   788→        onSave={handleSave}
+   789→      />
+   790→    </div>
+   791→  );
+   792→}
