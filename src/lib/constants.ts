@@ -79,10 +79,10 @@ export const ACCENT_COLORS = [
 ];
 
 export const GREETING_MESSAGES: Record<string, string> = {
-  morning: 'Good Morning Ashu',
-  afternoon: 'Good Afternoon Ashu',
-  evening: 'Good Evening Ashu',
-  night: 'Good Night Ashu',
+  morning: 'Good Morning ',
+  afternoon: 'Good Afternoon ',
+  evening: 'Good Evening ',
+  night: 'Good Night ',
 };
 
 export const BADGE_TYPES = [

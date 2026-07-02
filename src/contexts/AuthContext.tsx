@@ -18,6 +18,7 @@ import {
   type Auth,
 } from 'firebase/auth';
 import { isFirebaseReady, getFirebaseAuth } from '@/lib/firebase';
+import { resetAllStoresInMemory } from '@/lib/storeRegistry';
 
 const GUEST_KEY = 'focusflow-guest';
 
@@ -84,6 +85,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (k?.startsWith('focusflow-')) keys.push(k);
     }
     keys.forEach((k) => localStorage.removeItem(k));
+
+    // Clearing localStorage alone isn't enough: Zustand's persist middleware
+    // keeps a separate in-memory copy of state that survives this. Without
+    // resetting it here too, the previous account's data stays visible in
+    // the UI and can leak into the next account that signs in.
+    resetAllStoresInMemory();
   }, []);
 
 

@@ -184,9 +184,7 @@ export function AppSidebar() {
                     <p className="text-sm font-semibold text-white truncate">
   {user?.displayName ?? "Guest"}
 </p>
-                    <p className="text-[11px] text-white/30 truncate">
-  {user?.email ?? "Not Signed In"}
-</p>
+                    <p className="text-[11px] text-white/30 truncate">ashu@example.com</p>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-2 rounded-xl bg-emerald-500/[0.08] border border-emerald-500/[0.12] px-3 py-2">

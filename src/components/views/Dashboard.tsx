@@ -1,5 +1,5 @@
 'use client';
-
+import { useAuth } from '@/contexts/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -53,12 +53,18 @@ export function Dashboard() {
   const sessions = usePomodoroStore((s) => s.sessions);
   const getTodayCompletedCount = useTaskStore((s) => s.getTodayCompletedCount);
   const getCompletionPercentage = useChecklistStore((s) => s.getCompletionPercentage);
+  const { user } = useAuth();
 
   const [greeting, setGreeting] = useState('Welcome Back');
 
   useEffect(() => {
-    setGreeting(GREETING_MESSAGES[getGreetingTime()] ?? 'Welcome Back');
-  }, []);
+    const base = GREETING_MESSAGES[getGreetingTime()] ?? 'Welcome Back';
+    const firstName =
+      user?.displayName?.trim().split(' ')[0] ||
+      user?.email?.split('@')[0] ||
+      '';
+    setGreeting(firstName ? `${base}, ${firstName}` : base);
+  }, [user?.displayName, user?.email]);
 
   const focusMinutes = getTodayFocusMinutes();
   const tasksCompleted = getTodayCompletedCount();

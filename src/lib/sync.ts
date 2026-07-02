@@ -4,7 +4,8 @@ import {
 } from "firebase/firestore";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getFirebaseDb, isFirebaseReady } from "@/lib/firebase";
+import { getFirebaseDb, isFirebaseReady, getFirebaseAuth } from "@/lib/firebase";
+import { rehydrateStore, resetAllStoresInMemory } from "@/lib/storeRegistry";
 import {
   collection,
   doc,
@@ -127,8 +128,10 @@ parsed.state = {
 
 localStorage.setItem(storeKey, JSON.stringify(parsed));
 
-
-    // Force Zustand to re-read from localStorage
+    // Force Zustand to re-read from localStorage, otherwise the in-memory
+    // store keeps showing whatever was there before (e.g. previous user's
+    // data) even though localStorage now has the correct, current user's data.
+    rehydrateStore(storeKey);
   } catch {
     // ignore
   }
@@ -185,6 +188,13 @@ export function SyncManager() {
       return;
     }
 
+    // A different user just became active (fresh sign-in or account switch).
+    // Wipe every store's in-memory state first so nothing from the
+    // previous session can linger on screen or get re-synced into this
+    // user's Firestore data before their real data arrives below.
+    resetAllStoresInMemory();
+    lastHashesRef.current = {};
+
     const unsubs = unsubsRef.current;
 
     for (const desc of STORES) {
@@ -220,29 +230,34 @@ export function SyncManager() {
   }, [user?.uid, isSignedIn]);
 
   // Poll localStorage every 2s and push changes to Firestore
-  useEffect(() => {
-    if (!user?.uid || !isSignedIn || !isFirebaseReady()) return;
+// sync.ts - poora poll effect replace karo
+useEffect(() => {
+  if (!user?.uid || !isSignedIn || !isFirebaseReady()) return;
 
-    const uid = user.uid;
-    const pollId = setInterval(() => {
-      for (const desc of STORES) {
-        try {
-          const raw = localStorage.getItem(desc.storeKey);
-          if (!raw) continue;
-          const parsed = JSON.parse(raw);
-          const data = parsed?.state?.[desc.stateField];
-          const hash = JSON.stringify(data);
-          if (hash === lastHashesRef.current[desc.storeKey]) continue;
-          lastHashesRef.current[desc.storeKey] = hash;
-          writeStoreToFirestore(uid, desc, data);
-        } catch {
-          // ignore parse errors during polling
-        }
+  const uid = user.uid;
+  const pollId = setInterval(() => {
+    // Guard: agar is dauran user badal gaya (naya sign-in start ho gaya), skip karo
+    const auth = getFirebaseAuth();
+    if (auth?.currentUser?.uid !== uid) return;
+
+    for (const desc of STORES) {
+      try {
+        const raw = localStorage.getItem(desc.storeKey);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const data = parsed?.state?.[desc.stateField];
+        const hash = JSON.stringify(data);
+        if (hash === lastHashesRef.current[desc.storeKey]) continue;
+        lastHashesRef.current[desc.storeKey] = hash;
+        writeStoreToFirestore(uid, desc, data);
+      } catch {
+        // ignore
       }
-    }, 5000);
+    }
+  }, 5000);
 
-    return () => clearInterval(pollId);
-  }, [user?.uid, isSignedIn]);
+  return () => clearInterval(pollId);
+}, [user?.uid, isSignedIn]);
 
   return null;
 }
