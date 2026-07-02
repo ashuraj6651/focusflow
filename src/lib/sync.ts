@@ -1,15 +1,10 @@
-'use client';import { useTaskStore } from "@/stores/taskStore";
-import { useChecklistStore } from "@/stores/checklistStore";
-import { useSubjectStore } from "@/stores/subjectStore";
-import { useNotesStore } from "@/stores/notesStore";
-import { useGoalStore } from "@/stores/goalsStore";
-import { useHabitStore } from "@/stores/habitStore";
-import { useExamStore } from "@/stores/examStore";
-import { useAppStore } from "@/stores/appStore";
-import { usePomodoroStore } from "@/stores/pomodoroStore";
-import { useEffect, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { getFirebaseDb, isFirebaseReady } from '@/lib/firebase';
+'use client';
+import {
+  getDocs,
+} from "firebase/firestore";
+import { useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { getFirebaseDb, isFirebaseReady } from "@/lib/firebase";
 import {
   collection,
   doc,
@@ -66,22 +61,46 @@ async function writeStoreToFirestore(uid: string, desc: StoreDesc, data: unknown
         { merge: true }
       );
     } else {
-      const basePath = `users/${uid}/${desc.collectionPath}`;
-      const items = Array.isArray(data) ? data : [];
+  const basePath = `users/${uid}/${desc.collectionPath}`;
+  const items = Array.isArray(data) ? data : [];
 
-if (items.length === 0) {
-  return;
-}
-      const batch = writeBatch(db);
-      const colRef = collection(db, basePath);
-      for (const item of items) {
-        if (item && typeof item === 'object' && 'id' in item) {
-          batch.set(doc(colRef, item.id as string), item as DocumentData, { merge: true });
-        }
-      }
-      await batch.commit();
-      console.log("Saved:", desc.collectionPath, items);
+  const batch = writeBatch(db);
+  const colRef = collection(db, basePath);
+  const snapshot = await getDocs(colRef);
+
+  // Empty local => delete all cloud docs
+  if (items.length === 0) {
+    snapshot.docs.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+
+    await batch.commit();
+    return;
+  }
+
+  // Add / Update
+  for (const item of items) {
+    if (item && typeof item === "object" && "id" in item) {
+      batch.set(
+        doc(colRef, item.id as string),
+        item as DocumentData,
+        { merge: true }
+      );
     }
+  }
+
+  // Delete removed docs
+  for (const docSnap of snapshot.docs) {
+    const exists = items.some((item) => item.id === docSnap.id);
+
+    if (!exists) {
+      batch.delete(docSnap.ref);
+    }
+  }
+
+  await batch.commit();
+  console.log("Saved:", desc.collectionPath, items);
+}
   } catch (err) {
     console.error(`[FocusFlow] Firestore write error (${desc.storeKey}):`, err);
   }
@@ -108,43 +127,7 @@ parsed.state = {
 
 localStorage.setItem(storeKey, JSON.stringify(parsed));
 
-switch (storeKey) {
-  case "focusflow-tasks":
-    useTaskStore.persist.rehydrate();
-    break;
 
-  case "focusflow-checklist":
-    useChecklistStore.persist.rehydrate();
-    break;
-
-  case "focusflow-subjects":
-    useSubjectStore.persist.rehydrate();
-    break;
-
-  case "focusflow-notes":
-    useNotesStore.persist.rehydrate();
-    break;
-
-  case "focusflow-goals":
-  useGoalStore.persist.rehydrate();
-  break;
-
-  case "focusflow-habits":
-    useHabitStore.persist.rehydrate();
-    break;
-
-  case "focusflow-exams":
-    useExamStore.persist.rehydrate();
-    break;
-
-  case "focusflow-app":
-    useAppStore.persist.rehydrate();
-    break;
-
-  case "focusflow-pomodoro":
-    usePomodoroStore.persist.rehydrate();
-    break;
-}
     // Force Zustand to re-read from localStorage
   } catch {
     // ignore
