@@ -35,12 +35,10 @@ export default function Home() {
       </div>
       <div
         className={cn(
-          'flex min-h-screen flex-1 flex-col gradient-bg pb-16 md:pb-0',
-        )}
-        style={mounted ? {
-          marginLeft: sidebarOpen ? '280px' : '72px',
-          transition: 'margin-left 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)',
-        } : { marginLeft: '280px' }}
+  "flex min-h-screen flex-1 flex-col gradient-bg pb-16 md:pb-0 transition-all duration-300",
+  sidebarOpen ? "md:ml-[280px]" : "md:ml-[72px]"
+)}
+        
       >
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           <AppContent />
