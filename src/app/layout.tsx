@@ -1,10 +1,9 @@
-
+import { SyncManager } from "@/lib/sync";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { SyncManager } from "@/lib/sync";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
