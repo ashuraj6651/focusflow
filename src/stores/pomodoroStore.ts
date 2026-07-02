@@ -10,6 +10,7 @@ interface PomodoroState {
   isPaused: boolean;
   currentSessionType: SessionType;
   timeRemaining: number;
+  endAt: number | null;
   completedSessionsInCycle: number;
   settings: {
     focusDuration: number;
@@ -70,6 +71,29 @@ const loadSettings = (): PomodoroState['settings'] => {
 };
 
 let intervalRef: ReturnType<typeof setInterval> | null = null;
+let visibilityListenerAttached = false;
+
+// When the tab/app goes to the background, browsers throttle or fully
+// suspend setInterval/setTimeout callbacks to save battery/CPU. That's what
+// causes the countdown to "fall behind" real time. This listener forces an
+// immediate resync (based on the real clock via endAt) the moment the page
+// becomes visible again, instead of waiting for the next throttled interval
+// tick to fire.
+function registerVisibilitySync(
+  get: () => PomodoroState,
+  set: (partial: Partial<PomodoroState>) => void
+) {
+  if (visibilityListenerAttached || typeof document === 'undefined') return;
+  visibilityListenerAttached = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const state = get();
+      if (state.isRunning && !state.isPaused) {
+        state.tick();
+      }
+    }
+  });
+}
 
 export const usePomodoroStore = create<PomodoroState>()(
   persist(
@@ -80,23 +104,33 @@ export const usePomodoroStore = create<PomodoroState>()(
       isPaused: false,
       currentSessionType: 'focus',
       timeRemaining: loadSettings().focusDuration * 60,
+      endAt: null,
       completedSessionsInCycle: 0,
       settings: loadSettings(),
 
       startTimer: () => {
         if (intervalRef) clearInterval(intervalRef);
-        set({ isRunning: true, isPaused: false });
+        const { timeRemaining } = get();
+        set({ isRunning: true, isPaused: false, endAt: Date.now() + timeRemaining * 1000 });
         intervalRef = setInterval(() => {
           const state = get();
           if (state.isRunning && !state.isPaused) {
             state.tick();
           }
         }, 1000);
+        registerVisibilitySync(get, set);
       },
 
-      pauseTimer: () => set({ isPaused: true }),
+      pauseTimer: () => {
+        const { endAt } = get();
+        // Freeze the remaining time based on the real elapsed wall-clock time,
+        // not the tick count, so background throttling can't skew it.
+        const remaining = endAt != null ? Math.max(0, Math.round((endAt - Date.now()) / 1000)) : get().timeRemaining;
+        set({ isPaused: true, timeRemaining: remaining, endAt: null });
+      },
       resumeTimer: () => {
-        set({ isPaused: false });
+        const { timeRemaining } = get();
+        set({ isPaused: false, endAt: Date.now() + timeRemaining * 1000 });
       },
 
       resetTimer: () => {
@@ -108,7 +142,7 @@ export const usePomodoroStore = create<PomodoroState>()(
         let duration = settings.focusDuration * 60;
         if (currentSessionType === 'break') duration = settings.breakDuration * 60;
         if (currentSessionType === 'long-break') duration = settings.longBreakDuration * 60;
-        set({ isRunning: false, isPaused: false, timeRemaining: duration });
+        set({ isRunning: false, isPaused: false, timeRemaining: duration, endAt: null });
       },
 
       skipBreak: () => {
@@ -126,6 +160,7 @@ export const usePomodoroStore = create<PomodoroState>()(
           timeRemaining: duration,
           isRunning: false,
           isPaused: false,
+          endAt: null,
         });
         if (intervalRef) {
           clearInterval(intervalRef);
@@ -140,6 +175,7 @@ export const usePomodoroStore = create<PomodoroState>()(
           timeRemaining: settings.focusDuration * 60,
           isRunning: false,
           isPaused: false,
+          endAt: null,
         });
         if (intervalRef) {
           clearInterval(intervalRef);
@@ -148,12 +184,20 @@ export const usePomodoroStore = create<PomodoroState>()(
       },
 
       tick: () => {
-        const { timeRemaining, currentSessionType, settings, completedSessionsInCycle, sessions } = get();
-        if (timeRemaining <= 0) {
+        const { endAt, isRunning, isPaused } = get();
+        if (!isRunning || isPaused) return;
+        // Derive remaining time from the real clock instead of decrementing
+        // by 1 each callback — setInterval gets throttled/paused by the
+        // browser while the tab/app is backgrounded, so a naive -1 per tick
+        // falls behind real elapsed time. Recomputing from endAt catches up
+        // instantly as soon as the interval (or a visibility change) fires.
+        if (endAt == null) return;
+        const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+        if (remaining <= 0) {
           get().completeSession();
           return;
         }
-        set({ timeRemaining: timeRemaining - 1 });
+        set({ timeRemaining: remaining });
       },
 
       completeSession: () => {
@@ -228,6 +272,7 @@ export const usePomodoroStore = create<PomodoroState>()(
           timeRemaining: nextDuration,
           isRunning: shouldAutoStart && isRunning,
           isPaused: false,
+          endAt: shouldAutoStart ? Date.now() + nextDuration * 1000 : null,
         });
 
         if (!shouldAutoStart && intervalRef) {
