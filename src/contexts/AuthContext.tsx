@@ -86,68 +86,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     keys.forEach((k) => localStorage.removeItem(k));
   }, []);
 
-  const migrateLocalToCloud = useCallback(async (uid: string) => {
-    try {
-      const { captureLocalStorage, migrateToCloud } = await import('@/lib/sync');
-      const payload = captureLocalStorage();
-      await migrateToCloud(uid, payload);
-    } catch (err) {
-      console.error('[FocusFlow] Migration error:', err);
-    }
-  }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    if (!firebaseConfigured || !authInstance) return;
-    setIsLoading(true);
-    try {
-      const { GoogleAuthProvider } = await import('firebase/auth');
-      const result = await signInWithPopup(authInstance as Auth, new GoogleAuthProvider());
-      setIsGuest(false);
-      sessionStorage.removeItem(GUEST_KEY);
-      // Migrate local data to cloud for new sign-in
-      if (result.user) {
-        await migrateLocalToCloud(result.user.uid);
-      }
-    } catch (err) {
-      console.error('[FocusFlow] Google sign-in error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [firebaseConfigured, authInstance, migrateLocalToCloud]);
+  if (!firebaseConfigured || !authInstance) return;
+
+  setIsLoading(true);
+
+  try {
+    // Purana account ka local data hatao
+    clearFocusFlowData();
+
+    const { GoogleAuthProvider } = await import("firebase/auth");
+
+    await signInWithPopup(
+      authInstance as Auth,
+      new GoogleAuthProvider()
+    );
+
+    setIsGuest(false);
+    sessionStorage.removeItem(GUEST_KEY);
+  } catch (err) {
+    console.error("[FocusFlow] Google sign-in error:", err);
+  } finally {
+    setIsLoading(false);
+  }
+}, [firebaseConfigured, authInstance, clearFocusFlowData]);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    if (!firebaseConfigured || !authInstance) return;
-    setIsLoading(true);
-    try {
-      const result = await signInWithEmailAndPassword(authInstance as Auth, email, password);
-      setIsGuest(false);
-      sessionStorage.removeItem(GUEST_KEY);
-      if (result.user) {
-        await migrateLocalToCloud(result.user.uid);
-      }
-    } catch (err) {
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [firebaseConfigured, authInstance, migrateLocalToCloud]);
+  if (!firebaseConfigured || !authInstance) return;
+
+  setIsLoading(true);
+
+  try {
+    clearFocusFlowData();
+
+    await signInWithEmailAndPassword(
+      authInstance as Auth,
+      email,
+      password
+    );
+
+    setIsGuest(false);
+    sessionStorage.removeItem(GUEST_KEY);
+  } finally {
+    setIsLoading(false);
+  }
+}, [firebaseConfigured, authInstance, clearFocusFlowData]);
 
   const signUpWithEmail = useCallback(async (email: string, password: string) => {
-    if (!firebaseConfigured || !authInstance) return;
-    setIsLoading(true);
-    try {
-      const result = await createUserWithEmailAndPassword(authInstance as Auth, email, password);
-      setIsGuest(false);
-      sessionStorage.removeItem(GUEST_KEY);
-      if (result.user) {
-        await migrateLocalToCloud(result.user.uid);
-      }
-    } catch (err) {
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [firebaseConfigured, authInstance, migrateLocalToCloud]);
+  if (!firebaseConfigured || !authInstance) return;
+
+  setIsLoading(true);
+
+  try {
+    clearFocusFlowData();
+
+    await createUserWithEmailAndPassword(
+      authInstance as Auth,
+      email,
+      password
+    );
+
+    setIsGuest(false);
+    sessionStorage.removeItem(GUEST_KEY);
+  } finally {
+    setIsLoading(false);
+  }
+}, [firebaseConfigured, authInstance, clearFocusFlowData]);
 
   const continueAsGuest = useCallback(() => {
     setIsGuest(true);
@@ -155,21 +160,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      if (firebaseConfigured && authInstance && user) {
-        await firebaseSignOut(authInstance as Auth);
-      }
-    } catch (err) {
-      console.error('[FocusFlow] Sign-out error:', err);
-    } finally {
-      setUser(null);
-      setIsGuest(false);
-      sessionStorage.removeItem(GUEST_KEY);
-      clearFocusFlowData();
-      setIsLoading(false);
+  setIsLoading(true);
+  try {
+    if (firebaseConfigured && authInstance && user) {
+      await firebaseSignOut(authInstance as Auth);
     }
-  }, [firebaseConfigured, authInstance, user, clearFocusFlowData]);
+  } catch (err) {
+    console.error("[FocusFlow] Sign-out error:", err);
+  } finally {
+    setUser(null);
+    setIsGuest(false);
+    sessionStorage.removeItem(GUEST_KEY);
+
+    [
+      "focusflow-tasks",
+      "focusflow-checklist",
+      "focusflow-subjects",
+      "focusflow-notes",
+      "focusflow-goals",
+      "focusflow-habits",
+      "focusflow-exams",
+      "focusflow-app",
+      "focusflow-pomodoro",
+    ].forEach((key) => localStorage.removeItem(key));
+
+    clearFocusFlowData();
+    setIsLoading(false);
+  }
+}, [firebaseConfigured, authInstance, user, clearFocusFlowData]);
 
   return (
     <AuthContext.Provider

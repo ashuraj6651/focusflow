@@ -1,5 +1,12 @@
-'use client';
-
+'use client';import { useTaskStore } from "@/stores/taskStore";
+import { useChecklistStore } from "@/stores/checklistStore";
+import { useSubjectStore } from "@/stores/subjectStore";
+import { useNotesStore } from "@/stores/notesStore";
+import { useGoalStore } from "@/stores/goalsStore";
+import { useHabitStore } from "@/stores/habitStore";
+import { useExamStore } from "@/stores/examStore";
+import { useAppStore } from "@/stores/appStore";
+import { usePomodoroStore } from "@/stores/pomodoroStore";
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFirebaseDb, isFirebaseReady } from '@/lib/firebase';
@@ -60,8 +67,11 @@ async function writeStoreToFirestore(uid: string, desc: StoreDesc, data: unknown
       );
     } else {
       const basePath = `users/${uid}/${desc.collectionPath}`;
-      const items = data as Record<string, unknown>[];
-      if (!Array.isArray(items) || items.length === 0) return;
+      const items = Array.isArray(data) ? data : [];
+
+if (items.length === 0) {
+  return;
+}
       const batch = writeBatch(db);
       const colRef = collection(db, basePath);
       for (const item of items) {
@@ -83,11 +93,59 @@ async function writeStoreToFirestore(uid: string, desc: StoreDesc, data: unknown
 function writeLocalFromRemote(storeKey: string, stateField: string, data: unknown) {
   try {
     const raw = localStorage.getItem(storeKey);
-    const parsed = raw ? JSON.parse(raw) : { version: 0 };
-    parsed.state = { ...parsed.state, [stateField]: data };
-    localStorage.setItem(storeKey, JSON.stringify(parsed));
+
+const parsed = raw
+  ? JSON.parse(raw)
+  : {
+      state: {},
+      version: 0,
+    };
+
+parsed.state = {
+  ...parsed.state,
+  [stateField]: data,
+};
+
+localStorage.setItem(storeKey, JSON.stringify(parsed));
+
+switch (storeKey) {
+  case "focusflow-tasks":
+    useTaskStore.persist.rehydrate();
+    break;
+
+  case "focusflow-checklist":
+    useChecklistStore.persist.rehydrate();
+    break;
+
+  case "focusflow-subjects":
+    useSubjectStore.persist.rehydrate();
+    break;
+
+  case "focusflow-notes":
+    useNotesStore.persist.rehydrate();
+    break;
+
+  case "focusflow-goals":
+  useGoalStore.persist.rehydrate();
+  break;
+
+  case "focusflow-habits":
+    useHabitStore.persist.rehydrate();
+    break;
+
+  case "focusflow-exams":
+    useExamStore.persist.rehydrate();
+    break;
+
+  case "focusflow-app":
+    useAppStore.persist.rehydrate();
+    break;
+
+  case "focusflow-pomodoro":
+    usePomodoroStore.persist.rehydrate();
+    break;
+}
     // Force Zustand to re-read from localStorage
-    window.dispatchEvent(new StorageEvent('storage', { key: storeKey }));
   } catch {
     // ignore
   }
@@ -198,7 +256,7 @@ export function SyncManager() {
           // ignore parse errors during polling
         }
       }
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(pollId);
   }, [user?.uid, isSignedIn]);
