@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw,
@@ -46,12 +46,20 @@ export default function Motivation() {
   const { goals } = useGoalStore();
 
   const dayOfYear = getDayOfYear();
-  const [quoteIndex, setQuoteIndex] = useState(dayOfYear % MOTIVATIONAL_QUOTES.length);
+  // Start with deterministic defaults (index 0) so server-rendered HTML and
+  // the client's first render match exactly. Random/date-based values are
+  // only applied after mount, avoiding a hydration mismatch that can break
+  // Framer Motion's AnimatePresence content (missing/incomplete elements).
+  const [quoteIndex, setQuoteIndex] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tipScrollRef, setTipScrollRef] = useState<HTMLDivElement | null>(null);
-  const [successMsg] = useState(
-    () => SUCCESS_MESSAGES[Math.floor(Math.random() * SUCCESS_MESSAGES.length)]
-  );
+  const [successMsg, setSuccessMsg] = useState(SUCCESS_MESSAGES[0]);
+
+  useEffect(() => {
+    setQuoteIndex(dayOfYear % MOTIVATIONAL_QUOTES.length);
+    setSuccessMsg(SUCCESS_MESSAGES[Math.floor(Math.random() * SUCCESS_MESSAGES.length)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const currentQuote = MOTIVATIONAL_QUOTES[quoteIndex];
 
@@ -190,15 +198,15 @@ export default function Motivation() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl p-5 md:p-8 lg:p-10 space-y-8">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8 space-y-6 sm:space-y-8">
       {/* Daily Quote */}
-      <GlassCard className="relative overflow-hidden">
+      <GlassCard className="relative overflow-hidden w-full">
         <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 via-pink-500/10 to-orange-500/20" />
         <div className="absolute top-4 right-4">
           <Sparkles className="w-8 h-8 text-purple-400/40" />
         </div>
         <div className="relative z-10">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-2">
               <Star className="w-5 h-5 text-purple-400" />
               <h3 className="text-sm font-medium text-white/60 uppercase tracking-wider">Daily Quote</h3>
@@ -207,7 +215,7 @@ export default function Motivation() {
               variant="ghost"
               size="sm"
               onClick={handleNewQuote}
-              className="text-white/60 hover:text-white hover:bg-white/10 gap-2"
+              className="text-white/60 hover:text-white hover:bg-white/10 gap-2 px-2"
             >
               <motion.div
                 animate={isRefreshing ? { rotate: 360 } : { rotate: 0 }}
@@ -215,7 +223,9 @@ export default function Motivation() {
               >
                 <RefreshCw className="w-4 h-4" />
               </motion.div>
-              New Quote
+              <span className="hidden sm:inline">
+  New Quote
+</span>
             </Button>
           </div>
           <AnimatePresence mode="wait">
@@ -226,10 +236,10 @@ export default function Motivation() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              <blockquote className="text-2xl sm:text-3xl font-light italic text-white leading-relaxed">
+              <blockquote className="text-lg sm:text-2xl lg:text-3xl font-light italic text-white leading-relaxed break-words">
                 &ldquo;{currentQuote.text}&rdquo;
               </blockquote>
-              <p className="mt-4 text-lg text-purple-300 font-medium">
+              <p className="mt-4 text-sm sm:text-base text-purple-300 font-medium">
                 — {currentQuote.author}
               </p>
             </motion.div>
@@ -238,23 +248,23 @@ export default function Motivation() {
       </GlassCard>
 
       {/* Success Message */}
-      <GlassCard>
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-yellow-500/20 to-orange-500/20 flex items-center justify-center shrink-0">
+      <GlassCard className="w-full">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-yellow-500/20 to-orange-500/20 flex items-center justify-center shrink-0">
             <Sparkles className="w-6 h-6 text-yellow-400" />
           </div>
-          <p className="text-white/80 text-lg">{successMsg}</p>
+          <p className="flex-1 min-w-0 break-words text-white/80 text-sm sm:text-base lg:text-lg">{successMsg}</p>
         </div>
       </GlassCard>
 
       {/* Study Tips Carousel */}
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <Lightbulb className="w-5 h-5 text-yellow-400" />
             <h3 className="text-lg font-semibold text-white">Study Tips</h3>
           </div>
-          <div className="flex gap-1">
+          <div className="hidden sm:flex gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -275,13 +285,22 @@ export default function Motivation() {
         </div>
         <div
           ref={setTipScrollRef}
-          className="flex gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2 -mx-2 px-2"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+className="
+flex
+gap-4
+overflow-x-auto
+scroll-smooth
+snap-x
+snap-mandatory
+touch-pan-x
+pb-2
+px-1
+"          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {STUDY_TIPS.map((tip, i) => (
             <GlassCard
               key={i}
-              className="min-w-[280px] max-w-[300px] snap-start shrink-0 hover:bg-white/10"
+              className="w-[calc(100vw-48px)] sm:min-w-[280px] sm:max-w-[300px] md:min-w-[320px] snap-start shrink-0 hover:bg-white/10"
               hover
             >
               <div className="flex items-start gap-3">
@@ -296,8 +315,8 @@ export default function Motivation() {
       </div>
 
       {/* Achievement Badges */}
-      <GlassCard>
-        <div className="flex items-center justify-between mb-4">
+      <GlassCard className="w-full pb-28 sm:pb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <Trophy className="w-5 h-5 text-yellow-400" />
             <h3 className="text-lg font-semibold text-white">Achievements</h3>
@@ -306,7 +325,7 @@ export default function Motivation() {
             {earnedCount}/{badges.length} earned
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[420px] sm:max-h-[500px] overflow-y-auto pr-1">
           {badges.map((badge, i) => (
             <motion.div
               key={badge.name}
@@ -320,7 +339,7 @@ export default function Motivation() {
               }`}
             >
               <div
-                className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${
+                className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-2xl ${
                   badge.earned ? '' : 'grayscale'
                 }`}
                 style={{
