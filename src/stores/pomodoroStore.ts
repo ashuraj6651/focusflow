@@ -31,6 +31,7 @@ interface PomodoroState {
   completeSession: () => void;
   updateTimerSettings: (settings: Partial<PomodoroState['settings']>) => void;
   getTodayFocusMinutes: () => number;
+  getTodaySessionCount: () => number;
   getWeeklyStats: () => { date: string; minutes: number; sessions: number }[];
 }
 
@@ -297,6 +298,14 @@ export const usePomodoroStore = create<PomodoroState>()(
         return sessions
           .filter((s) => s.startTime.startsWith(todayStr) && s.type === 'focus' && s.completed)
           .reduce((acc, s) => acc + s.duration, 0);
+      },
+
+      getTodaySessionCount: () => {
+        const { sessions } = get();
+        const todayStr = getToday();
+        return sessions.filter(
+          (s) => s.startTime.startsWith(todayStr) && s.type === 'focus' && s.completed
+        ).length;
       },
 
       getWeeklyStats: () => {

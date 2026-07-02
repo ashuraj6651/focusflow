@@ -49,7 +49,6 @@ const quickActions: { icon: React.ReactNode; label: string; description: string;
 export function Dashboard() {
   const setCurrentView = useAppStore((s) => s.setCurrentView);
   const getTodayFocusMinutes = usePomodoroStore((s) => s.getTodayFocusMinutes);
-  const todaySessionCount = usePomodoroStore((s) => s.todaySessionCount);
   const sessions = usePomodoroStore((s) => s.sessions);
   const getTodayCompletedCount = useTaskStore((s) => s.getTodayCompletedCount);
   const getCompletionPercentage = useChecklistStore((s) => s.getCompletionPercentage);
@@ -76,6 +75,8 @@ export function Dashboard() {
       .filter((s) => s.type === 'focus' && s.completed && s.startTime.startsWith(todayStr))
       .map((s) => s.startTime.split('T')[0]);
   }, [sessions]);
+
+  const todaySessionCount = sessionDates.length;
 
   const streak = useMemo(() => {
     const todayStr = getToday();
