@@ -202,20 +202,20 @@ export default function Motivation() {
       {/* Daily Quote */}
       <GlassCard className="relative overflow-hidden w-full">
         <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 via-pink-500/10 to-orange-500/20" />
-        <div className="absolute top-4 right-4">
-          <Sparkles className="w-8 h-8 text-purple-400/40" />
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4">
+          <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400/40" />
         </div>
-        <div className="relative z-10">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="relative z-10 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pr-8 sm:pr-0">
             <div className="flex items-center gap-2">
-              <Star className="w-5 h-5 text-purple-400" />
+              <Star className="w-5 h-5 text-purple-400 shrink-0" />
               <h3 className="text-sm font-medium text-white/60 uppercase tracking-wider">Daily Quote</h3>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleNewQuote}
-              className="text-white/60 hover:text-white hover:bg-white/10 gap-2 px-2"
+              className="text-white/60 hover:text-white hover:bg-white/10 gap-2 px-3 min-h-[40px]"
             >
               <motion.div
                 animate={isRefreshing ? { rotate: 360 } : { rotate: 0 }}
@@ -235,8 +235,12 @@ export default function Motivation() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
+              className="min-w-0"
             >
-              <blockquote className="text-lg sm:text-2xl lg:text-3xl font-light italic text-white leading-relaxed break-words">
+              <blockquote
+                className="text-base xs:text-lg sm:text-2xl lg:text-3xl font-light italic text-white leading-relaxed break-words w-full"
+                style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+              >
                 &ldquo;{currentQuote.text}&rdquo;
               </blockquote>
               <p className="mt-4 text-sm sm:text-base text-purple-300 font-medium">
@@ -295,12 +299,13 @@ snap-mandatory
 touch-pan-x
 pb-2
 px-1
+-mx-1
 "          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {STUDY_TIPS.map((tip, i) => (
             <GlassCard
               key={i}
-              className="w-[calc(100vw-48px)] sm:min-w-[280px] sm:max-w-[300px] md:min-w-[320px] snap-start shrink-0 hover:bg-white/10"
+              className="w-[85vw] xs:w-[calc(100vw-64px)] sm:w-auto sm:min-w-[280px] sm:max-w-[300px] md:min-w-[320px] snap-start shrink-0 hover:bg-white/10"
               hover
             >
               <div className="flex items-start gap-3">
@@ -310,6 +315,12 @@ px-1
                 <p className="text-white/80 text-sm leading-relaxed">{tip}</p>
               </div>
             </GlassCard>
+          ))}
+        </div>
+        {/* Mobile scroll hint dots */}
+        <div className="flex sm:hidden justify-center gap-1.5 mt-3">
+          {STUDY_TIPS.map((_, i) => (
+            <div key={i} className="w-1.5 h-1.5 rounded-full bg-white/20" />
           ))}
         </div>
       </div>
@@ -325,7 +336,7 @@ px-1
             {earnedCount}/{badges.length} earned
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[420px] sm:max-h-[500px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:max-h-[500px] sm:overflow-y-auto sm:pr-1">
           {badges.map((badge, i) => (
             <motion.div
               key={badge.name}
@@ -339,7 +350,7 @@ px-1
               }`}
             >
               <div
-                className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-2xl ${
+                className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 ${
                   badge.earned ? '' : 'grayscale'
                 }`}
                 style={{
@@ -354,12 +365,12 @@ px-1
                     {badge.name}
                   </p>
                   {badge.earned ? (
-                    <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                    <Sparkles className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                   ) : (
-                    <Lock className="w-3.5 h-3.5 text-white/20" />
+                    <Lock className="w-3.5 h-3.5 text-white/20 shrink-0" />
                   )}
                 </div>
-                <p className="text-xs text-white/40 mt-0.5">{badge.description}</p>
+                <p className="text-xs text-white/40 mt-0.5 break-words">{badge.description}</p>
               </div>
             </motion.div>
           ))}
