@@ -39,10 +39,18 @@ const STORES: StoreDesc[] = [
 // ---------------------------------------------------------------------------
 // Write a store's data to Firestore
 // ---------------------------------------------------------------------------
+
 async function writeStoreToFirestore(uid: string, desc: StoreDesc, data: unknown) {
   const db = getFirebaseDb();
   if (!db) return;
-
+  await setDoc(
+  doc(db, "users", uid),
+  {
+    uid,
+    updatedAt: new Date(),
+  },
+  { merge: true }
+);
   try {
     if (desc.isSingleton) {
       await setDoc(
@@ -62,6 +70,7 @@ async function writeStoreToFirestore(uid: string, desc: StoreDesc, data: unknown
         }
       }
       await batch.commit();
+      console.log("Saved:", desc.collectionPath, items);
     }
   } catch (err) {
     console.error(`[FocusFlow] Firestore write error (${desc.storeKey}):`, err);
