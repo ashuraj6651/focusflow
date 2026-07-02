@@ -124,7 +124,7 @@ export default function PomodoroTimer() {
       {/* Timer Section */}
       <div className="flex flex-col items-center">
         <motion.div
-          className="relative"
+          className="relative rounded-full"
           animate={isRunning && !isPaused ? {
             boxShadow: [
               `0 0 20px ${sessionTypeColor}40`,
